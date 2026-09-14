@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>{{ title }}</title>
+<style>
+  {% include "_brand_tokens.css" %}
+
+  @page {
+    size: A4;
+    margin: 22mm 18mm 20mm 18mm;
+    @bottom-center {
+      content: "第 " counter(page) " 页 / 共 " counter(pages) " 页";
+      font-size: 8pt;
+      color: #94a3b8;
+      font-family: var(--font-sans);
+    }
+  }
+  /* 封面全页铺满：首页零边距 */
+  @page :first {
+    margin: 0;
+    @bottom-center { content: none; }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-sans);
+    font-size: 10.5pt;
+    color: var(--ink-soft);
+    line-height: 1.7;
+  }
+
+  /* 封面：全幅铺满 A4 */
+  .cover {
+    page-break-after: always;
+    background: var(--brand);
+    color: #ffffff;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0;
+    padding: 28mm 22mm 24mm;
+    display: block;
+    text-align: center;
+    box-sizing: border-box;
+  }
+  .cover .brand {
+    font-size: 12pt;
+    letter-spacing: 4px;
+    color: var(--brand-steel);
+    margin-bottom: 72px;
+  }
+  .cover h1 {
+    font-size: 30pt;
+    font-weight: bold;
+    letter-spacing: 6px;
+    margin-bottom: 24px;
+    color: #ffffff;
+  }
+  .cover .rule {
+    width: 120px;
+    height: 2px;
+    background: var(--gold);
+    margin: 0 auto 40px;
+  }
+  .cover .meta {
+    font-size: 13pt;
+    color: var(--brand-ice);
+    margin-top: 100px;
+    line-height: 2.2;
+  }
+  .cover .meta span { color: var(--brand-steel); }
+
+  /* 章节标题 */
+  .chapter {
+    font-size: 16pt;
+    font-weight: bold;
+    color: var(--brand);
+    border-bottom: 2px solid var(--brand);
+    padding-bottom: 8px;
+    margin: 28px 0 16px;
+    bookmark-level: 1;
+    bookmark-label: content(text);
+  }
+  .subchapter {
+    font-size: 13pt;
+    font-weight: bold;
+    color: var(--brand);
+    margin: 20px 0 10px;
+  }
+
+  /* 基本信息表 / 结论摘要 KPI */
+  table.info, table.kpi {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 16px;
+  }
+  table.info td, table.kpi td, table.kpi th {
+    border: 1px solid var(--line);
+    padding: 7px 10px;
+    font-size: 10.5pt;
+  }
+  table.kpi th {
+    background: var(--brand);
+    color: #ffffff;
+    font-weight: bold;
+    text-align: left;
+  }
+  table.info td.key, table.kpi td.key {
+    background: var(--bg-soft);
+    color: var(--brand-ink);
+    font-weight: bold;
+    width: 22%;
+  }
+
+  /* 分析正文 */
+  .analysis {
+    color: var(--ink-soft);
+    margin: 8px 0 12px;
+    text-align: justify;
+  }
+  .lead {
+    background: var(--bg);
+    border-left: 3px solid var(--brand);
+    padding: 10px 14px;
+    margin: 12px 0;
+    color: var(--ink-soft);
+  }
+
+  /* 列表 */
+  ul.items { margin: 6px 0 12px 18px; }
+  ul.items li, ul.claims li {
+    margin: 4px 0;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* 优势 / 风险摘要：全宽堆叠，禁止双栏 fixed 表在 WeasyPrint 下裁切正文 */
+  .summary-panels { margin: 8px 0 16px; }
+  .summary-panel {
+    border: 1px solid var(--line);
+    padding: 10px 14px;
+    margin: 0 0 10px;
+    page-break-inside: avoid;
+  }
+  .summary-panel .subchapter { margin-top: 0; }
+  .summary-panel .bullet-line,
+  .bullet-line {
+    margin: 4px 0;
+    padding-left: 0;
+    font-size: 10pt;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* 兼容旧 twocol（聚合模板仍可能引用） */
+  table.twocol {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 16px;
+    table-layout: auto;
+  }
+  table.twocol td.col {
+    width: 50%;
+    vertical-align: top;
+    border: 1px solid var(--line);
+    padding: 10px 14px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    overflow: visible;
+  }
+  table.twocol td.col .subchapter { margin-top: 0; }
+  table.twocol td.col.adv { border-right: none; }
+  table.twocol ul.items { margin: 6px 0 0 16px; }
+  table.twocol ul.items li { font-size: 10pt; }
+
+  /* 指标表 */
+  table.metrics, table.stmt {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 18px;
+    font-size: 10pt;
+    table-layout: fixed;
+  }
+  table.metrics th, table.metrics td,
+  table.stmt th, table.stmt td {
+    border: 1px solid var(--line);
+    padding: 6px 8px;
+    text-align: center;
+    vertical-align: middle;
+    overflow-wrap: anywhere;
+  }
+  table.metrics th, table.stmt th {
+    background: var(--brand);
+    color: #ffffff;
+    font-weight: bold;
+    white-space: nowrap;
+  }
+  table.metrics td.label, table.stmt td.label {
+    text-align: left;
+    color: var(--ink-soft);
+    width: 34%;
+  }
+  table.metrics td.val {
+    text-align: right;
+    white-space: nowrap;
+    word-break: keep-all;
+    width: 18%;
+  }
+  table.metrics td.std {
+    text-align: center;
+    white-space: nowrap;
+    word-break: keep-all;
+    width: 20%;
+  }
+  table.metrics td.rating-cell {
+    text-align: center;
+    width: 28%;
+    word-break: break-word;
+  }
+  table.stmt td.amount {
+    text-align: right;
+    white-space: nowrap;
+    word-break: keep-all;
+  }
+  table.metrics col.c-label { width: 34%; }
+  table.metrics col.c-val { width: 18%; }
+  table.metrics col.c-std { width: 20%; }
+  table.metrics col.c-rating { width: 28%; }
+
+  /* 评级着色 */
+  .ok { color: var(--ok); font-weight: bold; }
+  .warn { color: var(--bad); font-weight: bold; }
+  .anomaly { color: #9a3412; font-weight: bold; background: #ffedd5; padding: 1px 6px; border-radius: 2px; }
+  .mid { color: var(--warn); font-weight: bold; }
+  .nodata { color: var(--nodata); }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 3px;
+    color: #ffffff;
+    font-size: 10pt;
+    font-weight: bold;
+  }
+
+  .radar-wrap {
+    text-align: center;
+    margin: 12px 0 18px;
+    /* 流式排版：雷达紧跟摘要，禁止独占一页留白 */
+    page-break-before: auto;
+  }
+  .radar-wrap img { max-width: 62%; }
+
+  /* 免责声明 */
+  .disclaimer {
+    color: var(--ink-faint);
+    font-size: 9pt;
+    border-top: 1px solid var(--line);
+    margin-top: 30px;
+    padding-top: 14px;
+    line-height: 1.8;
+  }
+  /* 章节流式挤紧：默认不强制分页；仅在内容过长时自然分页 */
+  .page-break { page-break-before: auto; page-break-after: auto; }
+  .chapter-section { page-break-inside: auto; margin-top: 18px; }
+  .chapter-section > .chapter { page-break-after: avoid; }
+  .summary-flow { page-break-inside: auto; }
+</style>
+</head>
+<body>
+
+<!-- 封面：仅系统名 + 报告名 + 时间 -->
+<div class="cover">
+  <div class="brand">明鉴 · 财税票 · 万景</div>
+  <h1>{{ scenario_label }}</h1>
+  <div class="rule"></div>
+  <div class="meta" style="margin-top:80px; font-size:12pt; color:var(--brand-steel);">
+    报告日期：{{ report_date }}<br />
+    报告编号：{{ report_no }}
+  </div>
+</div>
+
+<!-- 评级摘要（流式：等级 + 命中风险指标 + 优势/风险/建议/雷达连续排） -->
+<div class="summary-flow">
+<div class="chapter">评级摘要</div>
+<table class="kpi">
+  <thead>
+    <tr>
+      <th style="width:22%;">指标</th>
+      <th style="width:28%;">结果</th>
+      <th style="width:22%;">指标</th>
+      <th style="width:28%;">结果</th>
+    </tr>
+  </thead>
+  <tbody>
+  <tr>
+    <td class="key">风险等级</td>
+    <td><span class="badge" style="background: {{ overall.health_color }};">{{ overall.risk_level }}</span></td>
+    <td class="key">命中风险指标</td>
+    <td><strong>{{ overall.hit_risk_count }}</strong> / {{ overall.checked_metric_count }} 项</td>
+  </tr>
+  </tbody>
+</table>
+
+<div class="lead">{{ overall.reason }}</div>
+
+{% if overall.advantages or overall.risk_points %}
+<div class="summary-panels">
+  {% if overall.advantages %}
+  <div class="summary-panel">
+    <div class="subchapter">主要优势</div>
+    {% for a in overall.advantages %}<p class="bullet-line">· {{ a }}</p>{% endfor %}
+  </div>
+  {% endif %}
+  {% if overall.risk_points %}
+  <div class="summary-panel">
+    <div class="subchapter">主要风险</div>
+    {% for p in overall.risk_points %}<p class="bullet-line">· {{ p }}</p>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if overall.advice %}
+<div class="summary-panel">
+  <div class="subchapter">主要建议</div>
+  {% for a in overall.advice %}<p class="bullet-line">· {{ a }}</p>{% endfor %}
+</div>
+{% endif %}
+
+{% if radar_chart_data_uri %}
+<div class="radar-wrap">
+  <img src="{{ radar_chart_data_uri }}" alt="六维风险画像" />
+</div>
+{% if overall.radar_interpretation %}
+<p class="analysis">{{ overall.radar_interpretation }}</p>
+{% endif %}
+{% endif %}
+</div>
+
+<!-- 一、企业基本信息 -->
+<section class="chapter-section">
+<div class="chapter">一、企业基本信息</div>
+<table class="info">
+  <tr><td class="key">企业名称</td><td>{{ subject.name }}</td></tr>
+  {% if subject.industry_l1 or subject.industry_l2 %}
+  <tr><td class="key">所属行业</td><td>{{ subject.industry_l1 }} / {{ subject.industry_l2 }}</td></tr>
+  {% endif %}
+  {% if subject.province %}
+  <tr><td class="key">所属地区</td><td>{{ subject.province }}</td></tr>
+  {% endif %}
+  {% if subject.report_year %}
+  <tr><td class="key">报告年度</td><td>{{ subject.report_year }}</td></tr>
+  {% endif %}
+</table>
+</section>
+
+<!-- 二、六维风险分析（与雷达同源；雷达 ⊆ 本章） -->
+{% if six_dimensions %}
+<section class="chapter-section">
+<div class="chapter">二、六维风险分析</div>
+{% if six_dim_temporal_note %}<p class="analysis">{{ six_dim_temporal_note }}</p>{% endif %}
+{% for d in six_dimensions %}
+<div class="subchapter">2.{{ loop.index }} {{ d.title }}</div>
+<table class="info">
+  <tr>
+    <td class="key">风险等级</td>
+    <td><span class="badge" style="background: {{ d.risk_color }};">{{ d.risk_level or '【暂无可用数据】' }}</span></td>
+  </tr>
+</table>
+<table class="metrics">
+  <colgroup>
+    <col class="c-label" /><col class="c-val" /><col class="c-std" /><col class="c-rating" />
+  </colgroup>
+  <thead>
+  <tr><th>指标</th><th>数值</th><th>参考标准</th><th>评级</th></tr>
+  </thead>
+  {% for m in d.metrics %}
+  <tr>
+    <td class="label">{{ m.label or '【暂无可用数据】' }}</td>
+    <td class="val">{% if m.value %}{{ m.value }}{% if m.unit %}{{ m.unit }}{% endif %}{% else %}【暂无可用数据】{% endif %}</td>
+    <td class="std">{{ m.standard if m.standard else '【暂无可用数据】' }}</td>
+    <td class="rating-cell">
+      {% if m.rating == "达标" %}<span class="ok">达标</span>
+      {% elif m.rating == "预警" or m.rating == "高" %}<span class="warn">{{ m.rating }}</span>
+      {% elif m.rating == "低" %}<span class="ok">低</span>
+      {% elif m.rating == "中等" %}<span class="mid">中等</span>
+      {% elif m.rating == "账务异常" %}<span class="anomaly">账务异常</span>
+      {% elif m.rating == "计算失效" %}<span class="anomaly">计算失效</span>
+      {% elif m.rating == "资不抵债" %}<span class="anomaly">资不抵债</span>
+      {% elif m.rating %}<span class="nodata">{{ m.rating }}</span>
+      {% else %}<span class="nodata">【暂无可用数据】</span>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+<div class="analysis">
+  <p>{{ d.analysis.level_review }}</p>
+  {% if d.analysis.risks %}<p>{{ d.analysis.risks }}</p>{% endif %}
+  {% if d.analysis.trend %}<p>{{ d.analysis.trend }}</p>{% endif %}
+</div>
+{% if d.analysis.advice %}<p class="analysis"><strong>建议：</strong>{{ d.analysis.advice }}</p>{% endif %}
+{% endfor %}
+</section>
+{% endif %}
+
+<!-- 三、财务能力明细 -->
+{% if dimensions %}
+<section class="chapter-section">
+<div class="chapter">三、财务能力明细</div>
+
+{% for d in dimensions %}
+<div class="subchapter">3.{{ loop.index }} {{ d.title }}</div>
+<table class="info">
+  <tr>
+    <td class="key">风险等级</td>
+    <td><span class="badge" style="background: {{ d.risk_color }};">{{ d.risk_level or '【暂无可用数据】' }}</span></td>
+  </tr>
+</table>
+<table class="metrics">
+  <colgroup>
+    <col class="c-label" /><col class="c-val" /><col class="c-std" /><col class="c-rating" />
+  </colgroup>
+  <thead>
+  <tr><th>指标</th><th>数值</th><th>参考标准</th><th>评级</th></tr>
+  </thead>
+  {% for m in d.metrics %}
+  <tr>
+    <td class="label">{{ m.label or '【暂无可用数据】' }}</td>
+    <td class="val">{% if m.value %}{{ m.value }}{% if m.unit %}{{ m.unit }}{% endif %}{% else %}【暂无可用数据】{% endif %}</td>
+    <td class="std">{{ m.standard if m.standard else '【暂无可用数据】' }}</td>
+    <td class="rating-cell">
+      {% if m.rating == "达标" %}<span class="ok">达标</span>
+      {% elif m.rating == "预警" or m.rating == "高" %}<span class="warn">{{ m.rating }}</span>
+      {% elif m.rating == "低" %}<span class="ok">低</span>
+      {% elif m.rating == "中等" %}<span class="mid">中等</span>
+      {% elif m.rating == "账务异常" %}<span class="anomaly">账务异常</span>
+      {% elif m.rating == "计算失效" %}<span class="anomaly">计算失效</span>
+      {% elif m.rating == "资不抵债" %}<span class="anomaly">资不抵债</span>
+      {% elif m.rating %}<span class="nodata">{{ m.rating }}</span>
+      {% else %}<span class="nodata">【暂无可用数据】</span>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+
+<div class="analysis">
+  <p>{{ d.analysis.level_review }}</p>
+  {% if d.analysis.risks %}<p>{{ d.analysis.risks }}</p>{% endif %}
+  {% if d.analysis.trend %}<p>{{ d.analysis.trend }}</p>{% endif %}
+</div>
+{% if d.analysis.advice %}<p class="analysis"><strong>建议：</strong>{{ d.analysis.advice }}</p>{% endif %}
+{% endfor %}
+</section>
+{% endif %}
+
+<!-- 四、主要财务数据（三表齐全；空表保留【暂无可用数据】，序号不跳） -->
+{% if statements %}
+<section class="chapter-section">
+<div class="chapter">四、主要财务数据</div>
+<p class="analysis">以下财务数据取自三大报表，单位：万元。</p>
+
+{% set ns = namespace(n=0) %}
+{% for st in ["income", "balance", "cashflow"] %}
+{% set s = statements[st] %}
+{% set ns.n = ns.n + 1 %}
+<div class="subchapter">4.{{ ns.n }} {{ s.title }}</div>
+<table class="stmt">
+  <tr><th style="width:50%;">项目</th><th style="width:50%;">金额（万元）</th></tr>
+  {% for row in s.rows %}
+  <tr><td class="label">{{ row[0] }}</td><td class="amount">{{ row[1] }}</td></tr>
+  {% endfor %}
+</table>
+{% endfor %}
+
+{% if dupont %}
+{% set ns.n = ns.n + 1 %}
+<div class="subchapter">4.{{ ns.n }} 杜邦分解</div>
+<p class="analysis">因子拆解如下（表格为必选输出；乘积式仅在各因子齐全时附带）。</p>
+<table class="metrics">
+  <tr><th style="width:34%;">因子</th><th style="width:26%;">方向</th><th style="width:40%;">数值</th></tr>
+  {% for f in dupont.factors %}
+  <tr>
+    <td class="label">{{ f.label }}</td>
+    <td>{{ f.dir }}</td>
+    <td class="unit">{{ f.disp if f.disp else '【暂无可用数据】' }}</td>
+  </tr>
+  {% endfor %}
+  <tr>
+    <td class="label">净资产收益率</td>
+    <td>综合</td>
+    <td class="unit">{{ dupont.roe_disp if dupont.roe_disp else '【暂无可用数据】' }}</td>
+  </tr>
+</table>
+{% if dupont.roe_disp and dupont.factors[0].disp and dupont.factors[1].disp and dupont.factors[2].disp %}
+<p class="analysis">净资产收益率 {{ dupont.roe_disp }} = 净利率 {{ dupont.factors[0].disp }} × 总资产周转率 {{ dupont.factors[1].disp }} × 权益乘数 {{ dupont.factors[2].disp }}。</p>
+{% endif %}
+{% endif %}
+
+{% if benchmark_chart_data_uri %}
+{% set ns.n = ns.n + 1 %}
+<div class="subchapter">4.{{ ns.n }} 同业对标</div>
+{% if benchmark_interpretation %}
+<p class="analysis">{{ benchmark_interpretation }}</p>
+{% endif %}
+<div class="radar-wrap">
+  <img src="{{ benchmark_chart_data_uri }}" alt="同业对标柱状图" />
+</div>
+{% endif %}
+</section>
+{% endif %}
+
+<div class="disclaimer">
+  本报告由明鉴・财税票・万景自动生成。无数据处弃权、不编造。本报告仅供内部风控参考，不构成任何投资、授信或法律意见。
+</div>
+
+</body>
+</html>
