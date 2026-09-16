@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from decimal import Decimal
 from typing import Any
 
@@ -204,7 +205,7 @@ async def build_trend_industry_claims(
         )
 
     chart = {
-        "type": "line",
+        "shape": "ordered_series",
         "data": {
             "labels": [zh_industry(s["industry_l1"]) for s in stats],
             "series": [{"name": "营收同比%", "values": [s["avg_revenue_yoy"] for s in stats]}],
@@ -250,6 +251,8 @@ def _score_overall_from_attr(
         "sample_count": attr.get("sample_count"),
     }
     if radar:
+        if isinstance(radar, dict):
+            radar["shape"] = "multi_dim_vector"
         meta["charts"] = radar
     return claims, meta
 
@@ -360,7 +363,7 @@ async def build_score_claims(
                 )
             )
         chart = {
-            "type": "bar",
+            "shape": "categorical_distribution",
             "data": {
                 "labels": [p["industry_l1"] for p in payload],
                 "series": [
@@ -429,7 +432,7 @@ async def build_score_claims(
             if s["province"] not in top_set:
                 chart_stats.append(s)
     chart = {
-        "type": "bar",
+        "shape": "categorical_distribution",
         "orientation": "horizontal" if len(chart_stats) > 8 else "vertical",
         "data": {
             "labels": [s["province"] for s in chart_stats],
@@ -482,7 +485,7 @@ async def build_benchmark_claims(
     live_avgs = {k: round(sum(v) / len(v), 2) for k, v in live_by_ind.items() if v}
     labels = [zh_industry(p["industry_l1"]) for p in payload]
     chart = {
-        "type": "bar",
+        "shape": "categorical_distribution",
         "data": {
             "labels": labels,
             "series": [
@@ -573,7 +576,7 @@ async def build_financial_claims(
     chart = None
     if group_pass_rate:
         chart = {
-            "type": "bar",
+            "shape": "categorical_distribution",
             "data": {
                 "labels": [g["group"] for g in group_pass_rate],
                 "series": [
@@ -687,7 +690,7 @@ async def build_tax_claims(
         chart_labels.append("所得税税负")
         chart_values.append(round(income * 100, 2))
     chart = {
-        "type": "bar",
+        "shape": "categorical_distribution",
         "data": {
             "labels": chart_labels or ["无有效比率"],
             "series": [{"name": "%", "values": chart_values or [0]}],
@@ -819,11 +822,18 @@ async def build_signal_claims(
 
     heatmap = signal_industry_heatmap(rows)
     if heatmap:
+        heatmap["shape"] = "matrix_heatmap"
         meta["charts"] = heatmap
     elif unique_affected:
-        meta["charts"] = signal_funnel_chart(len(rows), bucket_tax, bucket_dev, bucket_credit)
+        _funnel = signal_funnel_chart(len(rows), bucket_tax, bucket_dev, bucket_credit)
+        if _funnel:
+            _funnel["shape"] = "hierarchical_stages"
+        meta["charts"] = _funnel
     else:
-        meta["charts"] = signal_pie_chart(bucket_tax, bucket_dev, bucket_credit)
+        _pie = signal_pie_chart(bucket_tax, bucket_dev, bucket_credit)
+        if _pie:
+            _pie["shape"] = "proportion_buckets"
+        meta["charts"] = _pie
     return claims, meta
 
 
@@ -920,7 +930,7 @@ async def build_authenticity_claims(
             )
     ok_count = max(0, result["sample_count"] - result["suspicious_count"])
     result["charts"] = {
-        "type": "pie",
+        "shape": "proportion_buckets",
         "data": {
             "labels": ["可疑主体", "正常主体"],
             "series": [{"name": "家数", "values": [result["suspicious_count"], ok_count]}],
@@ -1043,12 +1053,12 @@ async def build_fraud_claims(
         values = list(sc.values())
         if len(labels) >= 2:
             out["charts"] = {
-                "type": "funnel",
+                "shape": "hierarchical_stages",
                 "data": {"labels": labels, "values": values},
             }
         else:
             out["charts"] = {
-                "type": "bar",
+                "shape": "categorical_distribution",
                 "data": {
                     "labels": labels,
                     "series": [{"name": "信号次数", "values": values}],
@@ -1165,10 +1175,124 @@ WARNING_SIGNAL_LABELS = {
 }
 
 ENTERPRISE_FOLLOWUPS = [
+    "这家能贷吗？",
+    "信用怎么样？",
+    "哪里不对劲？",
     "生成个体深度报告",
-    "它在同行业的排名是多少？",
-    "有哪些风险成因与预警信号？",
 ]
+
+
+async def build_enterprise_scenario_claims(
+    db: AsyncSession,
+    enterprise_id: str,
+    scenario: str | None = None,
+) -> tuple[list[Claim], dict[str, Any]]:
+    """R3：同一批引擎数字，按场景组织答案（不编数）。"""
+    claims, meta = await build_enterprise_claims(db, enterprise_id)
+    name = meta.get("enterprise_label") or meta.get("enterprise_name") or "该企业"
+    risk = None
+    score = None
+    for c in claims:
+        if c.value and c.value.metric == "overall_score" and c.trace and c.trace.query_id == "Q_enterprise_overall":
+            # parse from claim text risk level
+            m = re.search(r"「([^」]+)」", c.claim or "")
+            risk = m.group(1) if m else None
+            score = c.value.number
+            break
+
+    signals_claim = next((c for c in claims if c.trace and c.trace.query_id == "Q_enterprise_signals"), None)
+    neg_claims = [c for c in claims if c.trace and c.trace.query_id == "Q_enterprise_neg"]
+    overall = next((c for c in claims if c.trace and c.trace.query_id == "Q_enterprise_overall"), None)
+    peer = [c for c in claims if c.trace and (c.trace.query_id or "").startswith("Q_enterprise_peer_")]
+
+    lead: Claim | None = None
+    sc = (scenario or "").strip() or None
+    if sc == "loan":
+        # 放贷：能不能贷 + 附加条件（用风险等级与成因，不编额度）
+        if risk in ("低风险", "较低风险", "稳健"):
+            verdict = f"{name}短期放贷可谈"
+            cond = "建议把开票连续性、进销匹配作为附加条件"
+        elif risk in ("中风险", "中等", "中高风险"):
+            verdict = f"{name}放贷需谨慎"
+            cond = "建议压缩额度或提高担保，并核查营收偏差与负债"
+        else:
+            verdict = f"{name}暂不建议裸贷"
+            cond = "建议先核查预警信号与风险成因，再议条件"
+        lead = _claim(
+            f"{verdict}（综合风险「{risk or '—'}」）。{cond}。",
+            metric="overall_score",
+            number=score,
+            unit="分",
+            table="assessment",
+            field="overall_score",
+            query_id="Q_enterprise_loan",
+            evidence=[f"risk_level={risk}", f"scenario=loan"],
+        )
+        ordered = [lead]
+        if overall:
+            ordered.append(overall)
+        ordered.extend(neg_claims[:3])
+        if signals_claim:
+            ordered.append(signals_claim)
+        claims = ordered
+    elif sc == "rating":
+        lead = _claim(
+            f"{name}信用与风险研判：综合风险「{risk or '—'}」"
+            + (f"，综合经营指数 {score}" if score is not None else "")
+            + "。下面是等级依据与同群定位。",
+            metric="overall_score",
+            number=score,
+            unit="分",
+            table="assessment",
+            field="overall_score",
+            query_id="Q_enterprise_rating",
+            evidence=[f"risk_level={risk}", f"scenario=rating"],
+        )
+        claims = [lead] + ([overall] if overall else []) + peer[:3] + neg_claims[:2]
+    elif sc == "warn":
+        if signals_claim:
+            lead = _claim(
+                f"{name}哪里不对劲：{signals_claim.claim}",
+                metric="warning_signal_count",
+                number=signals_claim.value.number if signals_claim.value else None,
+                unit="项",
+                table="core_metrics",
+                field="warning_signals",
+                query_id="Q_enterprise_warn",
+                evidence=[f"scenario=warn"],
+            )
+        else:
+            lead = _claim(
+                f"{name}当前未见突出预警信号清单；综合风险「{risk or '—'}」，仍建议核对风险成因。",
+                metric="warning_signal_count",
+                number=0,
+                unit="项",
+                table="core_metrics",
+                field="warning_signals",
+                query_id="Q_enterprise_warn",
+                confidence="inferred",
+                evidence=[f"scenario=warn"],
+            )
+        claims = [lead] + neg_claims[:4] + ([overall] if overall else [])
+    elif sc == "audit":
+        focus = "；".join((c.claim or "") for c in neg_claims[:3]) or "优先核对进销匹配与开票连续性"
+        lead = _claim(
+            f"{name}优先核查：{focus}。",
+            metric="risk_factor",
+            number=len(neg_claims),
+            unit="项",
+            table="assessment",
+            field="attribution",
+            query_id="Q_enterprise_audit",
+            evidence=[f"scenario=audit"],
+        )
+        claims = [lead] + neg_claims[:5] + ([signals_claim] if signals_claim else [])
+    else:
+        # 未指定场景：保留完整画像，但 lead 用 overall
+        pass
+
+    meta = {**meta, "scenario": sc, "function": "enterprise", "scope": "individual"}
+    return claims, meta
 
 
 async def build_enterprise_claims(
@@ -1311,6 +1435,8 @@ async def build_enterprise_claims(
         )
 
     radar = enterprise_radar_chart(profile)
+    if isinstance(radar, dict):
+        radar["shape"] = "multi_dim_vector"
     meta: dict[str, Any] = {
         "enterprise_id": enterprise_id,
         "enterprise_label": name,
@@ -1470,9 +1596,13 @@ async def run_judgment(
         pending_function=fn if fn in ANALYSIS_FUNCTIONS else None,
         pending_claims=without_synthesis_claims(claims) if fn in ANALYSIS_FUNCTIONS else None,
     )
-    if synthesis:
+    # R4：综合不自动前置；仅显式「帮我综合」或报告期触发
+    if synthesis and meta.get("include_synthesis"):
         claims = synthesis + claims
         meta.update(syn_meta)
+    elif synthesis:
+        meta["synthesis_available"] = True
+        meta.update({k: v for k, v in syn_meta.items() if k != "synthesis"})
 
     followups = _derive_followups(fn, meta, claims)
     return claims, followups, meta
@@ -1669,7 +1799,7 @@ async def _generic_simple_avg(
             for s in stats[:8]
         ]
         chart = {
-            "type": "bar",
+            "shape": "categorical_distribution",
             "data": {
                 "labels": [s["group"] for s in stats[:8]],
                 "series": [{"name": label, "values": [s["avg"] for s in stats[:8]]}],
@@ -1797,7 +1927,7 @@ async def build_comparison_claims(
         )
 
     chart = {
-        "type": "bar",
+        "shape": "categorical_distribution",
         "data": {
             "labels": [p["value"] for p in per_value],
             "series": [{"name": label, "values": [p["avg"] for p in per_value]}],
@@ -1872,7 +2002,7 @@ async def build_ranking_claims(
                 for i, s in enumerate(stats)
             ]
             chart = {
-                "type": "bar",
+                "shape": "categorical_distribution",
                 "data": {
                     "labels": [s["group"] for s in stats],
                     "series": [{"name": label, "values": [s["avg"] for s in stats]}],
@@ -1922,7 +2052,7 @@ async def build_ranking_claims(
             for i, s in enumerate(stats)
         ]
         chart = {
-            "type": "bar",
+            "shape": "categorical_distribution",
             "data": {
                 "labels": [s["group"] for s in stats],
                 "series": [{"name": label, "values": [s["avg"] for s in stats]}],
@@ -1952,7 +2082,7 @@ async def build_ranking_claims(
         for i, it in enumerate(items)
     ]
     chart = {
-        "type": "bar",
+        "shape": "categorical_distribution",
         "data": {
             "labels": [it.get("display_name") or it.get("enterprise_name") or it.get("display_label") or "—" for it in items],
             "series": [{"name": "综合经营表现", "values": [float(it.get("overall_score") or 0) for it in items]}],
@@ -1995,7 +2125,7 @@ async def build_distribution_claims(
         for level, cnt in dist.items()
     ]
     chart = {
-        "type": "pie",
+        "shape": "proportion_buckets",
         "data": {
             "labels": list(dist.keys()),
             "series": [{"name": "主体数", "values": [dist[k] for k in dist]}],
@@ -2085,7 +2215,7 @@ async def build_segmentation_claims(
     stats.sort(key=lambda x: -(float(x.get("avg") or 0)))
     if stats:
         chart = {
-            "type": "bar",
+            "shape": "categorical_distribution",
             "data": {
                 "labels": [s["group"] for s in stats],
                 "series": [{"name": _metric_label(metric), "values": [s["avg"] for s in stats]}],
@@ -2151,6 +2281,8 @@ async def build_correlation_claims(
     from app.services.chart_payloads import correlation_scatter_chart
 
     chart = correlation_scatter_chart(xs, ys, x_label=la, y_label=lb)
+    if isinstance(chart, dict):
+        chart["shape"] = "two_var_correlation"
     return claims, {"correlation": round(r, 4), "n": len(xs), "charts": chart}
 
 
@@ -2229,9 +2361,13 @@ async def run_semantic_query(
         pending_function=fn if fn in ANALYSIS_FUNCTIONS else None,
         pending_claims=without_synthesis_claims(claims) if fn in ANALYSIS_FUNCTIONS else None,
     )
-    if synthesis:
+    # R4：综合不自动前置
+    if synthesis and meta.get("include_synthesis"):
         claims = synthesis + claims
         meta.update(syn_meta)
+    elif synthesis:
+        meta["synthesis_available"] = True
+        meta.update({k: v for k, v in syn_meta.items() if k != "synthesis"})
 
     followups = _derive_semantic_followups(sq, meta, claims)
     return claims, followups, meta

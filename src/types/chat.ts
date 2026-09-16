@@ -35,10 +35,28 @@ export interface ChatAction {
   target: string;
 }
 
+/** 刀 1：结构化追问（drilldown / action / navigate / query） */
+export interface FollowUpItem {
+  type: 'drilldown' | 'action' | 'navigate' | 'query' | string;
+  label: string;
+  claim_id?: string;
+  op?: string;
+  action?: string;
+  target?: string;
+  params?: Record<string, unknown>;
+}
+
 /** 强拦截引导卡片（方案 A）：定制报告无可用数据时给出可点击调整项 */
 export interface GuidanceCard {
   label: string;
   description: string;
+}
+
+/** 对话内生成的报告信息（后端 data.report） */
+export interface ChatReportMeta {
+  report_id: string;
+  download_url: string;
+  title?: string;
 }
 
 export interface Message {
@@ -48,8 +66,10 @@ export interface Message {
   timestamp: number;
   /** AI 回复附带的图表 */
   chart?: ChartConfig;
-  /** 追问建议 */
+  /** 追问建议（兼容旧字符串） */
   followups?: string[];
+  /** 结构化追问（优先于 followups） */
+  followupItems?: FollowUpItem[];
   /** 引导动作（跳转功能页，区别于追问文本） */
   actions?: ChatAction[];
   /** 强拦截引导卡片（方案 A）：无可用数据时的结构化调整项 */
@@ -66,6 +86,8 @@ export interface Message {
   analysisMode?: 'rule' | 'llm' | string;
   /** 意图解析来源：rule | llm | corrected */
   parseSource?: string;
+  /** 对话内生成的报告（可下载 / 跳转详情） */
+  report?: ChatReportMeta;
 }
 
 /** 对话上下文 */

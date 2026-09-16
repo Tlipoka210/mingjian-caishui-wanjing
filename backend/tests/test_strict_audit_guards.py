@@ -211,13 +211,13 @@ async def test_chat_custom_report_guides_not_generates():
     # 引导动作：固定向导 + AI 定制两个入口
     actions = out["data"].get("actions") or []
     targets = [a.get("target") for a in actions]
-    assert "/report?wizard=1" in targets
-    assert "/?custom=1" in targets
+    assert "/?wizard=1" in targets
+    assert "/research?custom=1" in targets
 
 
 @pytest.mark.asyncio
 async def test_chat_email_report_attempts_send():
-    """R2：email_report 读取 recipient 并尝试发信（收件人须匹配登录邮箱）。"""
+    """R2：email_report 读取 recipient 并尝试发信（收件人须为登录邮箱或受信邮箱）。"""
     from app.services.chat_router import route_chat
 
     db = AsyncMock()
@@ -240,7 +240,7 @@ async def test_chat_email_report_attempts_send():
             return_value=("rid", "/tmp/x.pdf", {"title": "报告", "chapters": [], "validation": {"ok": True}}),
         ):
             with patch("app.services.email_service.is_configured", return_value=True):
-                with patch("app.services.email_service.send_slice_report") as send:
+                with patch("app.services.email_service.send_report_to", new_callable=AsyncMock) as send:
                     with patch("app.services.chat_router.run_blocking", side_effect=_run_blocking):
                         with patch("app.services.conclusion_store.save_conclusion", return_value="c1"):
                             with patch("app.services.conclusion_store.covered_functions", return_value=set()):
@@ -270,7 +270,7 @@ async def test_chat_email_report_attempts_send():
                                                     session_id="s1",
                                                     user=subscriber,
                                                 )
-                    send.assert_called_once()
+                    send.assert_awaited_once()
 
 
 @pytest.mark.asyncio

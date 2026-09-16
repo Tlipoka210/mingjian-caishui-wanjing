@@ -13,6 +13,12 @@
 #   DEMO_USER_PASSWORD=<强口令>
 #   POSTGRES_PASSWORD / MYSQL_* 勿用默认弱口令
 #
+# 邮箱验证码（注册）：
+#   REQUIRE_EMAIL_VERIFICATION 默认 true —— 注册必须携带邮箱验证码。
+#   ⚠️ 开启状态下若未配 EMAIL_SENDER / EMAIL_PASSWORD，send-code 会返回 503，
+#      注册将不可用。本地临时关闭：在 .env 设 REQUIRE_EMAIL_VERIFICATION=false。
+#   QQ 邮箱：EMAIL_PASSWORD 填 SMTP 授权码（设置→账户→POP3/IMAP/SMTP服务），非登录密码。
+#
 # 说明：mysql 仅 profile=etl；应用运行期只读 PostgreSQL。
 #       DB/Redis 默认仅绑定 127.0.0.1，避免局域网裸奔。
 services:
@@ -78,6 +84,10 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
       LLM_FALLBACK_MODEL: ${LLM_FALLBACK_MODEL:-deepseek-v4-flash}
       LLM_DAILY_LIMIT: ${LLM_DAILY_LIMIT:-1000}
+      # M1 通义点金金融解读层
+      FINANCIAL_LLM_MODEL: ${FINANCIAL_LLM_MODEL:-}
+      FINANCIAL_LLM_API_KEY: ${FINANCIAL_LLM_API_KEY:-}
+      FINANCIAL_LLM_BASE_URL: ${FINANCIAL_LLM_BASE_URL:-}
       # JWT_SECRET 无代码兜底：必须由 .env 提供（≥32 随机）；AUTH 默认 true（fail-closed）
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
       AUTH_REQUIRED: ${AUTH_REQUIRED:-true}
@@ -87,6 +97,20 @@ services:
       DEMO_USER_EMAIL: ${DEMO_USER_EMAIL:-admin@example.com}
       DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-change-me-now}
       PREMIUM_REPORT_ENABLED: ${PREMIUM_REPORT_ENABLED:-false}
+      # ── 邮箱验证码（注册）── 默认开启；未配 EMAIL_* 时 send-code 返回 503
+      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-true}
+      EMAIL_SENDER: ${EMAIL_SENDER:-}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
+      EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST:-smtp.qq.com}
+      EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT:-465}
+      VERIFY_CODE_TTL_REGISTER: ${VERIFY_CODE_TTL_REGISTER:-900}
+      VERIFY_CODE_TTL_LOGIN: ${VERIFY_CODE_TTL_LOGIN:-600}
+      VERIFY_RESEND_COOLDOWN: ${VERIFY_RESEND_COOLDOWN:-60}
+      VERIFY_MAX_ATTEMPTS: ${VERIFY_MAX_ATTEMPTS:-5}
+      VERIFY_SEND_WINDOW_SECONDS: ${VERIFY_SEND_WINDOW_SECONDS:-900}
+      VERIFY_SEND_LIMIT_PER_EMAIL: ${VERIFY_SEND_LIMIT_PER_EMAIL:-5}
+      VERIFY_SEND_LIMIT_PER_IP: ${VERIFY_SEND_LIMIT_PER_IP:-20}
+      VERIFY_ATTEMPT_WINDOW_SECONDS: ${VERIFY_ATTEMPT_WINDOW_SECONDS:-900}
     depends_on:
       db:
         condition: service_healthy

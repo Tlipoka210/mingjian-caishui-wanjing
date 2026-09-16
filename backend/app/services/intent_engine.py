@@ -3,11 +3,19 @@
 
 功能：score / authenticity / fraud / benchmark / trend / report / email_report / signal / general
 维度：overall / industry / region / time / signal
+
+红线 §8.1：行业/地区列表禁止硬编码——必须动态从数据源读取。
+_INDUSTY_KW / _PROVINCE_KW 仅作为「同义词→标准名」映射（LLM 不可用时的兜底），
+industry_l1_options / province_options 的值域以 DB distinct 为准。
 """
 from __future__ import annotations
 
+import logging
 import re
+import time
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 FUNCTIONS = (
     "score",
@@ -59,11 +67,24 @@ _FUNC_PATTERNS: list[tuple[str, list[str]]] = [
     ("custom_report", [r"定制报告", r"定制", r"自定义报告", r"自定义", r"AI定制", r"帮我定制"]),
     ("report", [r"报告", r"出报告", r"生成报告", r"pdf", r"导出", r"评估报告", r"\breport\b"]),
     ("authenticity", [r"真伪", r"真实性", r"造假", r"虚开", r"benford", r"可信度", r"经营真实", r"authenticity", r"verification"]),
-    ("fraud", [r"舞弊", r"欺诈", r"发票异常", r"红冲", r"集中度", r"异常检测", r"进销错配", r"\bfraud\b", r"anomaly", r"mismatch"]),
+    ("fraud", [
+        r"舞弊", r"欺诈", r"发票异常", r"红冲", r"集中度", r"异常检测", r"进销错配",
+        r"可疑", r"该查", r"稽查", r"优先核查", r"哪里可疑", r"要查谁", r"该查谁",
+        r"\bfraud\b", r"anomaly", r"mismatch",
+    ]),
     ("benchmark", [r"对标", r"同业", r"行业对比", r"基准", r"percentile", r"[跟和与]同行", r"benchmark", r"\bpeer\b", r"comparison"]),
     ("trend", [r"趋势", r"走向", r"同比", r"环比", r"变化", r"走势", r"\btrend\b", r"yoy", r"mom"]),
-    ("score", [r"评分", r"风险分(?!布)", r"打分", r"综合分", r"风险等级", r"税务健康", r"纳税", r"\bscore\b", r"rating", r"credit score"]),
-    ("signal", [r"预警", r"信号", r"告警", r"风险点", r"风险预警", r"风险分布", r"\bwarning\b", r"\bsignal\b", r"\balert\b"]),
+    ("score", [
+        r"评分", r"风险分(?!布)", r"打分", r"综合分", r"风险等级", r"税务健康", r"纳税",
+        r"能贷", r"放贷", r"信用怎么样", r"评级", r"信用等级",
+        r"\bscore\b", r"rating", r"credit score",
+    ]),
+    ("signal", [
+        r"预警", r"信号", r"告警", r"风险点", r"风险预警", r"风险分布",
+        r"群体风险", r"整体风险", r"风险偏高", r"风险怎样", r"风险如何",
+        r"不对劲", r"哪里不对", r"异常信号",
+        r"\bwarning\b", r"\bsignal\b", r"\balert\b",
+    ]),
 ]
 
 _DIM_PATTERNS: list[tuple[str, list[str]]] = [
@@ -126,6 +147,10 @@ TEST_CASES: list[tuple[str, str]] = [
     ("分析各行业的趋势走向", "trend"),
     ("看经营真实性", "authenticity"),
     ("发票舞弊异常检测", "fraud"),
+    ("哪里可疑要查？", "fraud"),
+    ("哪里不对劲？", "signal"),
+    ("这家能贷吗？", "score"),
+    ("信用怎么样？", "score"),
     ("跟同行对标", "benchmark"),
     ("税务健康评分", "score"),
     ("有哪些风险预警", "signal"),
@@ -135,6 +160,8 @@ TEST_CASES: list[tuple[str, str]] = [
     ("广东地区信用分对比", "score"),
     ("按地区分析风险分布", "score"),
     ("制造业营收趋势", "trend"),
+    ("群体风险偏高然后呢", "signal"),
+    ("整体风险怎样", "signal"),
     ("你好", "general"),
 ]
 
@@ -187,22 +214,62 @@ def _match_dimension(q: str, function: str) -> tuple[str, float]:
     return "overall", 0.45
 
 
+# 行业/地区值域缓存：从 DB 动态读取（红线 §8.1），60 秒 TTL
+_DOMAIN_CACHE_TTL_SECONDS = 60.0
+_domain_cache: dict[str, tuple[float, list[str]]] = {}
+
+
+def _load_distinct_from_db(column: str) -> list[str]:
+    """从 core_metrics 表读取指定列的 distinct 值；失败返回空列表。"""
+    try:
+        from sqlalchemy import text
+
+        from app.db.urls import get_sync_engine
+
+        engine = get_sync_engine()
+        sql = f"SELECT DISTINCT {column} FROM core_metrics WHERE {column} IS NOT NULL ORDER BY {column}"
+        with engine.connect() as conn:
+            return [str(r[0]) for r in conn.execute(text(sql)) if r[0]]
+    except Exception as exc:
+        logger.info("load %s from db failed, fallback to static kw: %s", column, exc)
+        return []
+
+
+def _domain_values(column: str, static_fallback: list[str]) -> list[str]:
+    """动态读取行业/地区值域，60 秒 TTL 缓存；与静态映射合并（并集）。
+
+    静态同义词映射中的标准名是能力地图的一部分，DB 是事实数据源；
+    两者取并集以确保新增数据/新指标注册后选项即时可用（红线 §8.1）。
+    """
+    now = time.time()
+    cached = _domain_cache.get(column)
+    if cached and (now - cached[0]) < _DOMAIN_CACHE_TTL_SECONDS:
+        return cached[1]
+    dynamic = _load_distinct_from_db(column)
+    merged: list[str] = []
+    for v in list(static_fallback) + list(dynamic):
+        if v and v not in merged:
+            merged.append(v)
+    _domain_cache[column] = (now, merged)
+    return merged
+
+
 def industry_l1_options() -> list[str]:
-    """去重后的行业大类列表（供 LLM 白名单与测试）。"""
-    seen: list[str] = []
+    """行业大类值域（红线 §8.1：DB 动态读取，失败回退静态映射）。"""
+    static: list[str] = []
     for _, ind in _INDUSTRY_KW:
-        if ind not in seen:
-            seen.append(ind)
-    return seen
+        if ind not in static:
+            static.append(ind)
+    return _domain_values("industry_l1", static)
 
 
 def province_options() -> list[str]:
-    """去重后的地区白名单（供 LLM 定制对话槽位约束）。"""
-    seen: list[str] = []
+    """省份值域（红线 §8.1：DB 动态读取，失败回退静态映射）。"""
+    static: list[str] = []
     for _, prov in _PROVINCE_KW:
-        if prov not in seen:
-            seen.append(prov)
-    return seen
+        if prov not in static:
+            static.append(prov)
+    return _domain_values("province", static)
 
 
 def _match_industry(q: str) -> str | None:

@@ -1,11 +1,26 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { FileText, Download, Eye, FilePlus2, Search, RefreshCw, Loader2, X, AlertTriangle, Sparkles } from 'lucide-react';
+import {
+  FileText,
+  Download,
+  Eye,
+  FilePlus2,
+  Search,
+  RefreshCw,
+  Loader2,
+  X,
+  AlertTriangle,
+  Sparkles,
+  Trash2,
+  Mail,
+  MoreHorizontal,
+} from 'lucide-react';
 import useReportStore from '@/stores/reportStore';
 import useAuthStore from '@/stores/authStore';
 import { needsUpgrade } from '@/utils/plan';
 import UpgradeModal from '@/components/ui/UpgradeModal';
 import ReportWizard, { type WizardPrefs } from '@/components/report/ReportWizard';
+import SendEmailModal from '@/components/report/SendEmailModal';
 import type { ReportScenarioDef } from '@/constants/reportScenarios';
 import type { ReportListItem } from '@/types/report';
 import { reportApi } from '@/api/report';
@@ -35,7 +50,7 @@ function formatValidationWarn(validation: Record<string, unknown>): string {
 }
 
 export default function ReportCenter() {
-  const { reportList, isLoadingList, listError, fetchReportList, downloadPdf, generateSlice } =
+  const { reportList, isLoadingList, listError, fetchReportList, downloadPdf, generateSlice, deleteReport } =
     useReportStore();
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
@@ -49,6 +64,10 @@ export default function ReportCenter() {
   const [generatingScenario, setGeneratingScenario] = useState<string | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [validationWarn, setValidationWarn] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [sendTarget, setSendTarget] = useState<{ ids: string[]; titles: string[] } | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get('highlight');
   const wizardParam = searchParams.get('wizard');
@@ -57,9 +76,11 @@ export default function ReportCenter() {
     void fetchReportList();
   }, [fetchReportList]);
 
-  // chat 引导跳转：?wizard=1 → 自动打开报告生成向导（完整定制流程入口）
+  // 仅显式 ?wizard=1 时打开向导；落地页不再自动弹窗（刀 2b）
   useEffect(() => {
-    if (wizardParam === '1') setShowGenerate(true);
+    if (wizardParam === '1') {
+      setShowGenerate(true);
+    }
   }, [wizardParam]);
 
   // 清理 blob URL
@@ -129,6 +150,39 @@ export default function ReportCenter() {
     await downloadPdf(report.report_id, report.title);
   };
 
+  const handleDelete = async (e: React.MouseEvent, report: ReportListItem) => {
+    e.stopPropagation();
+    if (!window.confirm(`确定删除报告「${report.title}」吗？删除后不可恢复。`)) return;
+    setDeletingId(report.report_id);
+    try {
+      await deleteReport(report.report_id);
+      if (viewingId === report.report_id) handleClosePreview();
+      setSelectedIds((ids) => ids.filter((id) => id !== report.report_id));
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : '删除失败');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleSend = (e: React.MouseEvent, report: ReportListItem) => {
+    e.stopPropagation();
+    setSendTarget({ ids: [report.report_id], titles: [report.title] });
+  };
+
+  const toggleSelect = (e: React.ChangeEvent<HTMLInputElement>, reportId: string) => {
+    e.stopPropagation();
+    setSelectedIds((ids) =>
+      ids.includes(reportId) ? ids.filter((id) => id !== reportId) : [...ids, reportId]
+    );
+  };
+
+  const handleBatchSend = () => {
+    const selected = reports.filter((r) => selectedIds.includes(r.report_id));
+    if (selected.length === 0) return;
+    setSendTarget({ ids: selected.map((r) => r.report_id), titles: selected.map((r) => r.title) });
+  };
+
   /** 向导完成 → 生成切片报告；付费模块 / 非定制用户触发升级提示 */
   const handleWizardConfirm = async (scenario: ReportScenarioDef, prefs: WizardPrefs) => {
     if (needsUpgrade(user)) {
@@ -145,7 +199,7 @@ export default function ReportCenter() {
         // 单企业通道：指定企业 → 走个体深度报告（脱敏、无 LLM）
         const res = await reportApi.enterprise(prefs.enterprise_id);
         reportId = res.report_id;
-        validation = res.validation;
+        validation = res.validation as Record<string, unknown> | undefined;
       } else {
         const out = await generateSlice({
           scenario: scenario.key,
@@ -185,8 +239,8 @@ export default function ReportCenter() {
       {/* 标题栏 */}
       <div className="bg-white border-b border-warm-200 px-6 py-3 flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-warm-800">报告中心</h1>
-          <p className="text-xs text-warm-400 mt-0.5">查看和管理税务风险分析报告</p>
+          <h1 className="text-lg font-semibold text-warm-800">出报告</h1>
+          <p className="text-xs text-warm-400 mt-0.5">选场景生成风控报告 · 查看与管理已出报告</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -200,7 +254,7 @@ export default function ReportCenter() {
             生成报告
           </button>
           <button
-            onClick={() => navigate('/?custom=1')}
+            onClick={() => navigate('/research?custom=1')}
             className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-amber/30 text-amber text-xs hover:bg-amber-50 transition-colors"
           >
             <Sparkles className="w-3.5 h-3.5" />
@@ -236,6 +290,25 @@ export default function ReportCenter() {
         </div>
       </div>
 
+      {selectedIds.length > 0 && (
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 flex items-center gap-3">
+          <span className="text-xs text-warm-700">已选 {selectedIds.length} 份</span>
+          <button
+            onClick={handleBatchSend}
+            className="flex items-center gap-1.5 h-7 px-3 rounded-lg bg-amber text-white text-xs hover:bg-amber-dark transition-colors"
+          >
+            <Mail className="w-3.5 h-3.5" />
+            批量发送
+          </button>
+          <button
+            onClick={() => setSelectedIds([])}
+            className="h-7 px-3 rounded-lg border border-warm-200 text-xs text-warm-500 hover:bg-warm-100 transition-colors"
+          >
+            取消选择
+          </button>
+        </div>
+      )}
+
       {validationWarn && (
         <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 text-amber mt-0.5 flex-shrink-0" />
@@ -255,7 +328,7 @@ export default function ReportCenter() {
       <div className="flex-1 flex overflow-hidden justify-center">
         {/* 左侧：报告列表 */}
         <div className={`${viewingId ? 'w-[420px]' : 'flex-1 max-w-[600px] mx-auto'} flex-shrink-0 overflow-auto border-r border-warm-200 bg-white`}>
-          <div className="p-3 space-y-1.5">
+          <div className="p-4 space-y-3">
             {isLoadingList ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="w-5 h-5 text-warm-400 animate-spin" />
@@ -276,30 +349,51 @@ export default function ReportCenter() {
             ) : filteredReports.length > 0 ? (
               filteredReports.map((report) => {
                 const isActive = viewingId === report.report_id;
+                const menuOpen = menuOpenId === report.report_id;
                 return (
                   <div
                     key={report.report_id}
-                    onClick={(e) => handleView(e, report)}
-                    className={`rounded-lg border p-3 cursor-pointer transition-all ${
+                    onClick={(e) => {
+                      setMenuOpenId(null);
+                      handleView(e, report);
+                    }}
+                    className={`rounded-xl border p-4 cursor-pointer transition-all ${
                       isActive
                         ? 'border-amber-400 bg-amber-50/60 shadow-sm'
-                        : 'border-transparent hover:bg-warm-50 hover:border-warm-200'
+                        : 'border-warm-100 hover:bg-warm-50 hover:border-warm-200'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-7 h-7 rounded flex items-center justify-center flex-shrink-0 ${
-                        isActive ? 'bg-amber-500' : 'bg-warm-100'
-                      }`}>
-                        <FileText className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-warm-500'}`} />
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(report.report_id)}
+                        onChange={(e) => toggleSelect(e, report.report_id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="accent-amber flex-shrink-0"
+                      />
+                      <div
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                          isActive ? 'bg-amber-500' : 'bg-warm-100'
+                        }`}
+                      >
+                        <FileText
+                          className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-warm-500'}`}
+                        />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className={`text-[13px] font-medium truncate ${isActive ? 'text-amber-800' : 'text-warm-700'}`}>
+                        <p
+                          className={`text-[13px] font-medium truncate ${
+                            isActive ? 'text-amber-800' : 'text-warm-700'
+                          }`}
+                        >
                           {report.title}
                         </p>
-                        <div className="flex items-center gap-2 mt-0.5">
+                        <div className="flex items-center gap-2 mt-1">
                           <span className="text-[10px] text-warm-400">{report.date}</span>
                           <span className="text-[10px] text-warm-300">·</span>
-                          <span className="text-[10px] text-warm-400">{formatSize(report.size)}</span>
+                          <span className="text-[10px] text-warm-400">
+                            {formatSize(report.size)}
+                          </span>
                         </div>
                       </div>
                       <button
@@ -307,18 +401,66 @@ export default function ReportCenter() {
                           e.stopPropagation();
                           navigate(`/report/${report.report_id}`);
                         }}
-                        className="p-1 rounded hover:bg-warm-100 transition-colors flex-shrink-0"
-                        title="查看结构化详情"
+                        className="p-1.5 rounded-lg hover:bg-warm-100 transition-colors flex-shrink-0"
+                        title="查看详情"
                       >
                         <Eye className="w-3.5 h-3.5 text-warm-400" />
                       </button>
-                      <button
-                        onClick={(e) => handleDownload(e, report)}
-                        className="p-1 rounded hover:bg-warm-100 transition-colors flex-shrink-0"
-                        title="下载"
-                      >
-                        <Download className="w-3.5 h-3.5 text-warm-400" />
-                      </button>
+                      <div className="relative flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuOpenId(menuOpen ? null : report.report_id);
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-warm-100 transition-colors"
+                          title="更多操作"
+                          aria-label="更多操作"
+                        >
+                          <MoreHorizontal className="w-3.5 h-3.5 text-warm-400" />
+                        </button>
+                        {menuOpen && (
+                          <div
+                            className="absolute right-0 top-full mt-1 z-20 w-36 rounded-lg border border-warm-200 bg-white shadow-md py-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                setMenuOpenId(null);
+                                handleDownload(e, report);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-warm-700 hover:bg-warm-50"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              下载
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                setMenuOpenId(null);
+                                handleSend(e, report);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-warm-700 hover:bg-warm-50"
+                            >
+                              <Mail className="w-3.5 h-3.5" />
+                              发送邮件
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                setMenuOpenId(null);
+                                handleDelete(e, report);
+                              }}
+                              disabled={deletingId === report.report_id}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-terracotta hover:bg-terracotta/5 disabled:opacity-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              删除
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -408,13 +550,20 @@ export default function ReportCenter() {
         onConfirm={handleWizardConfirm}
         busy={generatingScenario !== null}
         error={generateError}
-        onOpenCustom={() => navigate('/?custom=1')}
+        onOpenCustom={() => navigate('/research?custom=1')}
       />
 
       <UpgradeModal
         open={showUpgrade}
         onClose={() => setShowUpgrade(false)}
         feature="报告生成 / 下载"
+      />
+
+      <SendEmailModal
+        open={sendTarget !== null}
+        onClose={() => setSendTarget(null)}
+        reportIds={sendTarget?.ids ?? []}
+        titles={sendTarget?.titles ?? []}
       />
     </div>
   );

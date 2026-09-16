@@ -21,6 +21,7 @@ from app.services.intent_engine import (
     province_options,
 )
 from app.services.report_templates import (
+    CHAPTER_REGISTRY,
     CUSTOM_CHAPTERS,
     CUSTOM_CHAPTER_DIMENSIONS,
     CUSTOM_CHAPTER_KEYWORDS,
@@ -130,7 +131,7 @@ def clamp_chapters_for_scope(chapters: list[str], scope_mode: str = "") -> list[
     _ = scope_mode
     out: list[str] = []
     for c in chapters or []:
-        if c in CUSTOM_CHAPTERS and c not in out:
+        if c in CHAPTER_REGISTRY and c not in out:
             out.append(c)
     return out
 
@@ -166,7 +167,7 @@ def normalize_spec(spec: CustomReportSpec | None) -> CustomReportSpec | None:
         return None
     chapters: list[str] = []
     for c in spec.chapters or []:
-        if c in CUSTOM_CHAPTERS and c not in chapters:
+        if c in CHAPTER_REGISTRY and c not in chapters:
             chapters.append(c)
     industry = spec.industry_l1 if spec.industry_l1 in industry_l1_options() else None
     province = spec.province if spec.province in province_options() else None
@@ -188,13 +189,14 @@ def spec_to_report_spec(spec: CustomReportSpec) -> dict:
     """把 CustomReportSpec 转成报告引擎可消费的 SCENARIOS 风格 spec dict。"""
     chapters = []
     for fn in spec.chapters:
-        if fn not in CUSTOM_CHAPTERS:
+        if fn not in CHAPTER_REGISTRY:
             continue
-        title, desc = CUSTOM_CHAPTERS[fn]
+        title = CHAPTER_REGISTRY[fn]["title"]
+        desc = CHAPTER_REGISTRY[fn]["desc"]
         chapters.append(
             {
                 "function": fn,
-                "dimension": CUSTOM_CHAPTER_DIMENSIONS.get(fn, "overall"),
+                "dimension": (CHAPTER_REGISTRY.get(fn) or {}).get("default_dimension", "overall"),
                 "title": title,
                 "purpose": desc,
             }
@@ -214,8 +216,10 @@ def spec_to_report_spec(spec: CustomReportSpec) -> dict:
         "tier": "general",
         # story 不在此写死：由 _build_context_from_spec → compose_story_from_chapters 从 claim 拼装
         "story": "",
+        "purpose": (spec.purpose or "").strip(),
+        "governing_question": (spec.purpose or "").strip() or None,
         "data_focus": ["财务数据", "税务数据", "发票数据", "企业基础信息"],
-        "cover": {"motif": "compass", "accent": "#003366"},
+        "cover": {"motif": "compass", "accent": "#152446"},
         "kpis": kpis,
         "chapters": chapters,
     }
@@ -232,7 +236,7 @@ def proposal_text(spec: CustomReportSpec) -> str:
         lines.append(f"数据范围：{scope}（行业切片）")
     else:
         lines.append("数据范围：全部样本（未限定行业/企业）")
-    names = [CUSTOM_CHAPTERS[c][0] for c in spec.chapters if c in CUSTOM_CHAPTERS]
+    names = [CHAPTER_REGISTRY[c]["title"] for c in spec.chapters if c in CHAPTER_REGISTRY]
     lines.append(f"章节（按对话识别，可调整）：{'、'.join(names) or '（未确定）'}")
     lines.append("确认无误请点「确认生成」；要换场景或章节请直接说明。")
     return "\n".join(lines)
@@ -259,7 +263,7 @@ def match_chapters(text: str) -> list[str]:
 
 def infer_title(chapters: list[str]) -> str:
     """按章节组合推导标题（纯结构，无数字/事实）。"""
-    names = [CUSTOM_CHAPTERS[c][0] for c in chapters if c in CUSTOM_CHAPTERS]
+    names = [CHAPTER_REGISTRY[c]["title"] for c in chapters if c in CHAPTER_REGISTRY]
     if not names:
         return "定制风控报告"
     if len(names) == 1:
@@ -325,7 +329,7 @@ def _spec_from_slots(state: dict) -> CustomReportSpec | None:
     spec = _spec_dict(state)
     # 合并已累计章节（最大化覆盖）
     for c in spec.get("chapters") or []:
-        if c in CUSTOM_CHAPTERS and c not in chapters:
+        if c in CHAPTER_REGISTRY and c not in chapters:
             chapters.append(c)
     industry = spec.get("industry_l1") or _match_industry(text)
     province = spec.get("province") or _match_province(text)
@@ -353,7 +357,7 @@ def _merge_llm_spec(state: dict, spec) -> None:
     acc = _spec_dict(state)
     chapters = list(acc.get("chapters") or [])
     for c in spec.chapters or []:
-        if c in CUSTOM_CHAPTERS and c not in chapters:
+        if c in CHAPTER_REGISTRY and c not in chapters:
             chapters.append(c)
     if chapters:
         acc["chapters"] = chapters
@@ -374,7 +378,7 @@ def _merge_with_slots(spec: CustomReportSpec, state: dict) -> CustomReportSpec:
     acc = _spec_dict(state)
     chapters = list(spec.chapters or [])
     for c in acc.get("chapters") or []:
-        if c in CUSTOM_CHAPTERS and c not in chapters:
+        if c in CHAPTER_REGISTRY and c not in chapters:
             chapters.append(c)
     industry = spec.industry_l1 or acc.get("industry_l1")
     province = spec.province or acc.get("province")
@@ -422,7 +426,7 @@ def _salvage_or_give_up(state: dict) -> dict:
         "followups": scenario_path_prompts(),
         "stage": "asking",
         "spec": None,
-        "meta": {"actions": [{"label": "打开报告生成向导", "target": "/report?wizard=1"}]},
+        "meta": {"actions": [{"label": "打开报告生成向导", "target": "/?wizard=1"}]},
         "llm": False,
     }
 

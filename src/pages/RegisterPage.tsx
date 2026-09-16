@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { AnimatedCharacters } from '@/components/ui/AnimatedCharacters';
@@ -8,17 +8,57 @@ import useAuthStore from '@/stores/authStore';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
-  const { register, isLoading, error, clearError } = useAuthStore();
+  const { register, sendCode, fetchFormToken, isLoading, error, clearError } = useAuthStore();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [isPasswordFieldFocused, setIsPasswordFieldFocused] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const [formToken, setFormToken] = useState('');
   const [formData, setFormData] = useState({
     email: '',
+    code: '',
     password: '',
     confirmPassword: '',
   });
   const [localError, setLocalError] = useState('');
+
+  // 进入页面即取一次防机器表单令牌（用户停留数秒后才会点「获取验证码」）
+  useEffect(() => {
+    void fetchFormToken().then(setFormToken);
+  }, [fetchFormToken]);
+
+  // 重发倒计时（依赖 countdown，每秒递减一次，卸载时清理）
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
+
+  const handleSendCode = async () => {
+    clearError();
+    setLocalError('');
+    const email = formData.email.trim();
+    if (!email) {
+      setLocalError('请先填写邮箱');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setLocalError('邮箱格式不正确');
+      return;
+    }
+    setSendingCode(true);
+    const res = await sendCode(email, 'register', formToken);
+    setSendingCode(false);
+    if (!res.ok) {
+      setLocalError(res.message);
+      // 令牌可能已过期：重取一次，让用户下一次点击可用
+      void fetchFormToken().then(setFormToken);
+      return;
+    }
+    setCountdown(res.resendAfter ?? 60);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +67,11 @@ export default function RegisterPage() {
 
     if (!formData.email || !formData.password) {
       setLocalError('请填写邮箱和密码');
+      return;
+    }
+
+    if (!formData.code.trim()) {
+      setLocalError('请填写邮箱验证码');
       return;
     }
 
@@ -40,7 +85,7 @@ export default function RegisterPage() {
       return;
     }
 
-    const success = await register(formData.email, formData.password);
+    const success = await register(formData.email, formData.password, formData.code.trim());
     if (success) {
       navigate('/login');
     }
@@ -114,6 +159,37 @@ export default function RegisterPage() {
                 onBlur={() => setIsTyping(false)}
                 className="h-12 w-full rounded-lg border border-warm-200 bg-white px-4 py-2 text-warm-800 placeholder:text-warm-400 focus:outline-none focus:border-amber focus:ring-1 focus:ring-amber transition-colors"
               />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="code" className="text-sm font-medium text-warm-700">
+                邮箱验证码 <span className="text-terracotta">*</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="code"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="6 位数字"
+                  autoComplete="off"
+                  value={formData.code}
+                  onChange={(e) =>
+                    setFormData({ ...formData, code: e.target.value.replace(/\D/g, '') })
+                  }
+                  onFocus={() => setIsTyping(true)}
+                  onBlur={() => setIsTyping(false)}
+                  className="h-12 flex-1 min-w-0 rounded-lg border border-warm-200 bg-white px-4 py-2 text-warm-800 placeholder:text-warm-400 focus:outline-none focus:border-amber focus:ring-1 focus:ring-amber transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={handleSendCode}
+                  disabled={countdown > 0 || sendingCode || !formData.email}
+                  className="h-12 shrink-0 rounded-lg border border-warm-200 bg-white px-4 text-sm font-medium text-warm-700 transition-colors hover:border-amber hover:text-amber disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {countdown > 0 ? `${countdown}s 后重发` : sendingCode ? '发送中...' : '获取验证码'}
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2">

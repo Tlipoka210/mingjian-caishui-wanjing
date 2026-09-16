@@ -14,12 +14,12 @@ from sqlalchemy import func, select, text
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.chat import router as chat_router
+from app.api.v1.email import router as email_router
 from app.api.v1.ingest import router as ingest_router
 from app.api.v1.metrics import router as metrics_router
 from app.api.v1.report import router as report_router
 from app.api.v1.risk import router as risk_router
 from app.api.v1.subscription import router as subscription_router
-from app.api.v1.reusability import router as reusability_router
 from app.db.session import _get_async_session_local
 from app.models.core_metrics import CoreMetrics
 from app.responses import UTF8JSONResponse
@@ -98,6 +98,29 @@ async def lifespan(app: FastAPI):
         except Exception as col_exc:
             logger.debug("chat_sessions custom_state column ensure: %s", col_exc)
 
+        def _ensure_chat_session_owner_column() -> None:
+            """已有库 create_all 不会加列；补 chat_sessions.owner（M0 账号记忆）。"""
+            from sqlalchemy import text
+
+            with eng.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE chat_sessions "
+                        "ADD COLUMN IF NOT EXISTS owner VARCHAR(255)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_chat_sessions_owner "
+                        "ON chat_sessions (owner)"
+                    )
+                )
+
+        try:
+            await asyncio.to_thread(_ensure_chat_session_owner_column)
+        except Exception as col_exc:
+            logger.debug("chat_sessions owner column ensure: %s", col_exc)
+
         def _ensure_app_user_plan_column() -> None:
             """已有库 create_all 不会加列；补 app_users.plan（订阅分层）。"""
             from sqlalchemy import text
@@ -115,6 +138,23 @@ async def lifespan(app: FastAPI):
         except Exception as col_exc:
             logger.debug("app_users plan column ensure: %s", col_exc)
 
+        def _ensure_app_user_pwd_ver_column() -> None:
+            """已有库 create_all 不会加列；补 app_users.pwd_ver（改密后旧 token 失效）。"""
+            from sqlalchemy import text
+
+            with eng.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE app_users "
+                        "ADD COLUMN IF NOT EXISTS pwd_ver INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+
+        try:
+            await asyncio.to_thread(_ensure_app_user_pwd_ver_column)
+        except Exception as col_exc:
+            logger.debug("app_users pwd_ver column ensure: %s", col_exc)
+
         from app.services.auth_service import ensure_demo_user, validate_production_config
 
         auth_check = validate_production_config()
@@ -128,18 +168,6 @@ async def lifespan(app: FastAPI):
         from app.services.metric_registry import ensure_canonical_metrics
 
         _startup_checks["canonical_metrics_seeded"] = await asyncio.to_thread(ensure_canonical_metrics)
-
-        # 启动时自动导入外部数据（可复用实证）
-        if os.getenv("AUTO_IMPORT_EXTERNAL", "true").lower() in ("1", "true", "yes"):
-            try:
-                from app.etl.import_external_data import import_external_data
-                imported = await asyncio.to_thread(import_external_data)
-                _startup_checks["external_data_imported"] = imported
-                if imported > 0:
-                    logger.info("Auto-imported %d external enterprises", imported)
-            except Exception as ext_exc:
-                logger.warning("External data import skipped: %s", ext_exc)
-                _startup_checks["external_data_imported"] = 0
     except RuntimeError:
         raise
     except Exception as exc:
@@ -231,11 +259,11 @@ app.add_middleware(RateLimitMiddleware)
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(risk_router, prefix="/api/v1")
 app.include_router(report_router, prefix="/api/v1")
+app.include_router(email_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(metrics_router, prefix="/api/v1")
 app.include_router(ingest_router, prefix="/api/v1")
 app.include_router(subscription_router, prefix="/api/v1")
-app.include_router(reusability_router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health")

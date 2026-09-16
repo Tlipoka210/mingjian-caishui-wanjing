@@ -63,6 +63,7 @@ class ChatSessionRecord(Base):
     __tablename__ = "chat_sessions"
 
     session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
     last_intent: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_function: Mapped[str | None] = mapped_column(String(32), nullable=True)
     last_dimension: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -72,6 +73,7 @@ class ChatSessionRecord(Base):
     covered_functions_json: Mapped[str] = mapped_column(Text, default="[]")
     history_json: Mapped[str] = mapped_column(Text, default="[]")
     custom_state_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    focus_history_json: Mapped[str] = mapped_column(Text, default="[]")  # M2 焦点栈
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -84,4 +86,6 @@ class AppUser(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(32), default="user")
     plan: Mapped[str] = mapped_column(String(32), default="free")
+    # 密码版本：改密时 +1；JWT 携带签发时的值，鉴权时比对，用于「改密后旧 token 立即失效」
+    pwd_ver: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

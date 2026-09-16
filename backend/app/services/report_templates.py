@@ -1,12 +1,14 @@
-"""报告场景模板：全量/行业两主题（画像 + 预警）× 个体体检（独立路径）。
+"""报告场景模板：四业务场景（放贷/评级/预警/稽查）× 个体体检。
 
-产品定位（2026-08 锁定）：
+产品定位（2026-09 M4）：
 - **个体企业**：单户财税票体检（enterprise 路径，非本 SCENARIOS）。
-- **全量 / 行业**：同一类监管/机构用户；同构两主题——
-  1. portrait（样本库画像）：均值/分位/占比/结构
-  2. alert（风险预警）：阈值、命中条数、预警家数与信号
+- **全量 / 行业**：四业务场景——
+  1. loan（放贷）：能不能贷 / 额度与附加条件
+  2. rating（评级）：信用等级与结构画像（承接原 portrait）
+  3. warn（预警）：阈值、命中与异常分布（承接原 alert）
+  4. audit（稽查）：哪里可疑、优先核查什么
 
-旧场景 key（financial/tax/…）经 _LEGACY_SCENARIO_MAP 归一到 portrait|alert，保证 API/历史兼容。
+旧 key（portrait/alert/financial/…）经 _LEGACY_SCENARIO_MAP 归一到四场景，保证 API/历史兼容。
 数据与评级永远来自 L0/L1（铁律），此处只决定「结构 + 语气」。
 """
 from __future__ import annotations
@@ -19,19 +21,20 @@ from typing import Any
 # 每章：功能是什么 → 由 judgment 填结论 → 证据链来自 claim.trace
 ChapterSpec = dict[str, Any]
 
-# 场景封面母题（前端据此渲染不同图形）+ 主色
+# 场景封面母题 + 主色（与 cover_frame_*.svg 强调色对齐）
 # motif 取值：ledger / seal / magnifier / compass / badge
 #
 # 注意：各场景 "story" 字段仅为规划备注/文档说明，**不进入 L4 渲染**。
 # 封面导语由 compose_story_from_chapters（claim → 文本）产出；无 claim → 弃权。
 
-_PORTRAIT_SPEC: dict[str, Any] = {
-    "title": "样本库画像报告",
-    "subtitle": "结构分布 · 均值分布 · 信用与规模画像",
+_RATING_SPEC: dict[str, Any] = {
+    "title": "评级研判报告",
+    "subtitle": "信用结构 · 等级信号 · 六维经营表现",
     "tier": "general",
-    "story": "面向监管/机构的组合视角：刻画样本结构（地区、行业、信用），给出均值与分布结论，不作单户定性。",
+    "governing_question": "群体信用结构？谁可授信？",
+    "story": "面向评级/授信人员：用财税票经营数据说明信用处在什么水平、结构强弱在哪。",
     "data_focus": ["企业基础信息", "财务数据", "税务数据"],
-    "cover": {"motif": "badge", "accent": "#6d28d9"},
+    "cover": {"motif": "badge", "accent": "#A18A5F", "frame": "rating"},
     "kpis": [
         {"label": "样本规模", "metric": "sample_count", "unit": "家", "source": "core_metrics"},
         {"label": "覆盖地区", "metric": "region_count", "unit": "个", "source": "core_metrics"},
@@ -39,40 +42,43 @@ _PORTRAIT_SPEC: dict[str, Any] = {
         {"label": "综合经营表现", "metric": "overall_score", "unit": "", "source": "assessment"},
     ],
     "chapters": [
-        {
-            "function": "score",
-            "dimension": "region",
-            "title": "地区信用结构",
-            "purpose": "分地区信用表现对比，刻画结构梯度（结论导向，非样本脚注堆砌）。",
-        },
-        {
-            "function": "trend",
-            "dimension": "industry",
-            "title": "行业规模与趋势",
-            "purpose": "行业营收规模与主体数量分布，定位样本结构。",
-        },
-        {
-            "function": "benchmark",
-            "dimension": "industry",
-            "title": "行业基准定位",
-            "purpose": "样本均值对比行业基准，识别偏离。",
-        },
-        {
-            "function": "score",
-            "dimension": "overall",
-            "title": "六维经营表现画像",
-            "purpose": "样本六维均值画像，建立总体认知。",
-        },
+        {"function": "score", "dimension": "region", "title": "地区信用结构", "purpose": "分地区信用表现对比，刻画结构梯度（结论导向）。"},
+        {"function": "trend", "dimension": "industry", "title": "行业规模与趋势", "purpose": "行业营收规模与主体数量分布，定位样本结构。"},
+        {"function": "benchmark", "dimension": "industry", "title": "行业基准定位", "purpose": "样本均值对比行业基准，识别偏离。"},
+        {"function": "score", "dimension": "overall", "title": "六维经营表现画像", "purpose": "样本六维均值画像，建立总体认知。"},
     ],
 }
 
-_ALERT_SPEC: dict[str, Any] = {
+_LOAN_SPEC: dict[str, Any] = {
+    "title": "放贷研判报告",
+    "subtitle": "能不能贷 · 额度逻辑 · 附加条件",
+    "tier": "general",
+    "governing_question": "能不能放贷？附加什么条件？",
+    "story": "面向信贷人员：用经营与发票信号回答能不能贷、额度要不要收紧、附加条件写什么。",
+    "data_focus": ["财务数据", "发票数据", "税务数据", "企业基础信息"],
+    "cover": {"motif": "compass", "accent": "#3A6EA5", "frame": "loan"},
+    "kpis": [
+        {"label": "样本规模", "metric": "sample_count", "unit": "家", "source": "core_metrics"},
+        {"label": "群体风险判断", "metric": "risk_level", "unit": "档", "source": "computed"},
+        {"label": "综合经营表现", "metric": "overall_score", "unit": "", "source": "assessment"},
+        {"label": "舞弊信号", "metric": "fraud_signal_count", "unit": "项", "source": "fraud"},
+    ],
+    "chapters": [
+        {"function": "score", "dimension": "overall", "title": "放贷综合判断", "purpose": "先给能不能贷的总体判断，再落到经营与发票信号。"},
+        {"function": "fraud", "dimension": "industry", "title": "发票与进销信号", "purpose": "进货销货是否对得上、冲红与开票连续性——放贷附加条件的主要依据。"},
+        {"function": "authenticity", "dimension": "overall", "title": "收入真实性", "purpose": "申报/开票/财报是否同向，避免额度建立在虚增营收上。"},
+        {"function": "benchmark", "dimension": "industry", "title": "同业对照与额度参考", "purpose": "对照行业均值，提示额度上限与收紧理由。"},
+    ],
+}
+
+_WARN_SPEC: dict[str, Any] = {
     "title": "风险预警报告",
     "subtitle": "预警阈值 · 命中家数 · 信号分布（匿名）",
     "tier": "general",
-    "story": "面向监管/稽查预警：集中披露常规阈值、超阈命中家数与信号分布；主体匿名聚合，不输出具名企业名单。",
+    "governing_question": "风险在哪？哪些企业该预警？",
+    "story": "面向监测/预警：集中披露阈值、超阈命中家数与信号分布；主体匿名聚合，不输出具名名单。",
     "data_focus": ["税务数据", "发票数据", "财务数据", "企业基础信息"],
-    "cover": {"motif": "magnifier", "accent": "#d32f2f"},
+    "cover": {"motif": "magnifier", "accent": "#C87F1F", "frame": "warn"},
     "kpis": [
         {"label": "预警主体数", "metric": "flagged_count", "unit": "家", "source": "core_metrics"},
         {"label": "群体风险判断", "metric": "risk_level", "unit": "档", "source": "computed"},
@@ -80,73 +86,86 @@ _ALERT_SPEC: dict[str, Any] = {
         {"label": "样本规模", "metric": "sample_count", "unit": "家", "source": "core_metrics"},
     ],
     "chapters": [
-        {
-            "function": "signal",
-            "dimension": "signal",
-            "title": "预警信号总览",
-            "purpose": "命中规则、预警家数与多重风险叠加；写清常规阈值与超阈计数。",
-        },
-        {
-            "function": "fraud",
-            "dimension": "industry",
-            "title": "发票异常预警",
-            "purpose": "进销错配、红冲、集中度与序列缺口的命中分布。",
-        },
-        {
-            "function": "tax",
-            "dimension": "overall",
-            "title": "税务合规预警",
-            "purpose": "欠税、滞纳、违法与税负异常主体计数。",
-        },
-        {
-            "function": "authenticity",
-            "dimension": "overall",
-            "title": "真实性交叉预警",
-            "purpose": "多口径营收偏差超阈主体与勾稽异常。",
-        },
+        {"function": "signal", "dimension": "signal", "title": "预警信号总览", "purpose": "命中规则、预警家数与多重风险叠加；写清常规阈值与超阈计数。"},
+        {"function": "fraud", "dimension": "industry", "title": "发票异常预警", "purpose": "进货销货对不上、冲红、集中度与开票断续的命中分布。"},
+        {"function": "tax", "dimension": "overall", "title": "税务合规预警", "purpose": "欠税、滞纳、违法与交税占比异常主体计数。"},
+        {"function": "authenticity", "dimension": "overall", "title": "真实性交叉预警", "purpose": "多口径营收偏差超阈主体与勾稽异常。"},
     ],
 }
 
-# 主场景 + 旧 key 别名（深拷贝，避免共享可变 chapters）
-SCENARIOS: dict[str, dict[str, Any]] = {
-    "portrait": copy.deepcopy(_PORTRAIT_SPEC),
-    "alert": copy.deepcopy(_ALERT_SPEC),
-    # 兼容旧 API / 历史文件名 / 单测直接下标
-    "profile": copy.deepcopy(_PORTRAIT_SPEC),
-    "overview": copy.deepcopy(_PORTRAIT_SPEC),
-    "financial": copy.deepcopy(_ALERT_SPEC),
-    "tax": copy.deepcopy(_ALERT_SPEC),
-    "fraud": copy.deepcopy(_ALERT_SPEC),
-    "due_diligence": copy.deepcopy(_ALERT_SPEC),
+_AUDIT_SPEC: dict[str, Any] = {
+    "title": "稽查线索报告",
+    "subtitle": "可疑点 · 优先核查 · 可照做动作",
+    "tier": "general",
+    "governing_question": "哪些可疑？优先查谁？查什么？",
+    "story": "面向稽查人员：指出哪里可疑、该先查什么，给出可照做的核查动作（匿名聚合）。",
+    "data_focus": ["发票数据", "税务数据", "财务数据"],
+    "cover": {"motif": "seal", "accent": "#A03C35", "frame": "audit"},
+    "kpis": [
+        {"label": "可疑信号主体", "metric": "flagged_count", "unit": "家", "source": "core_metrics"},
+        {"label": "舞弊信号", "metric": "fraud_signal_count", "unit": "项", "source": "fraud"},
+        {"label": "群体风险判断", "metric": "risk_level", "unit": "档", "source": "computed"},
+        {"label": "样本规模", "metric": "sample_count", "unit": "家", "source": "core_metrics"},
+    ],
+    "chapters": [
+        {"function": "fraud", "dimension": "industry", "title": "优先核查：发票异常", "purpose": "红冲、进销对不上、开票断续——稽查第一下钻点。"},
+        {"function": "authenticity", "dimension": "overall", "title": "优先核查：账票不一致", "purpose": "申报与开票、财报口径是否同向。"},
+        {"function": "tax", "dimension": "overall", "title": "税务合规疑点", "purpose": "欠税/滞纳/交税占比异常，作为第二核查队列。"},
+        {"function": "signal", "dimension": "signal", "title": "信号叠加与名单策略", "purpose": "多重信号叠加的匿名命中分布，提示抽查优先级。"},
+    ],
 }
-# 兼容别名保留原标题，便于旧文案/下载名识别
-SCENARIOS["profile"]["title"] = "样本库画像报告"
-SCENARIOS["overview"]["title"] = "样本库画像报告"
+
+# 兼容旧名
+_PORTRAIT_SPEC = _RATING_SPEC
+_ALERT_SPEC = _WARN_SPEC
+
+SCENARIOS: dict[str, dict[str, Any]] = {
+    "loan": copy.deepcopy(_LOAN_SPEC),
+    "rating": copy.deepcopy(_RATING_SPEC),
+    "warn": copy.deepcopy(_WARN_SPEC),
+    "audit": copy.deepcopy(_AUDIT_SPEC),
+    "portrait": copy.deepcopy(_RATING_SPEC),
+    "alert": copy.deepcopy(_WARN_SPEC),
+    "profile": copy.deepcopy(_RATING_SPEC),
+    "overview": copy.deepcopy(_RATING_SPEC),
+    "financial": copy.deepcopy(_WARN_SPEC),
+    "tax": copy.deepcopy(_WARN_SPEC),
+    "fraud": copy.deepcopy(_AUDIT_SPEC),
+    "due_diligence": copy.deepcopy(_WARN_SPEC),
+}
+SCENARIOS["portrait"]["title"] = "评级研判报告"
+SCENARIOS["profile"]["title"] = "评级研判报告"
+SCENARIOS["overview"]["title"] = "评级研判报告"
+SCENARIOS["alert"]["title"] = "风险预警报告"
 SCENARIOS["financial"]["title"] = "风险预警报告"
 SCENARIOS["tax"]["title"] = "风险预警报告"
-SCENARIOS["fraud"]["title"] = "风险预警报告"
+SCENARIOS["fraud"]["title"] = "稽查线索报告"
 SCENARIOS["due_diligence"]["title"] = "风险预警报告"
 
-# 场景中文名（含数据类侧重提示）
 SCENARIO_LABELS = {
-    "portrait": "样本库画像（结构统计）",
-    "alert": "风险预警（阈值与命中分布）",
+    "loan": "放贷研判",
+    "rating": "评级研判",
+    "warn": "风险预警",
+    "audit": "稽查线索",
+    "portrait": "评级研判（兼容旧·画像）",
+    "alert": "风险预警（兼容旧·预警）",
     "financial": "风险预警（兼容旧·财务）",
     "tax": "风险预警（兼容旧·税务）",
-    "fraud": "风险预警（兼容旧·发票）",
+    "fraud": "稽查线索（兼容旧·发票）",
     "due_diligence": "风险预警（兼容旧·尽调）",
-    "profile": "样本库画像（兼容旧·画像）",
-    "overview": "样本库画像（兼容旧·总览）",
+    "profile": "评级研判（兼容旧·画像）",
+    "overview": "评级研判（兼容旧·总览）",
     "custom": "定制风控报告（按范围引导）",
+    "enterprise": "企业体检",
 }
 
-# 全量/行业向导与对话只推荐这两个主题
-PORTFOLIO_SCENARIO_KEYS: tuple[str, ...] = ("portrait", "alert")
+PORTFOLIO_SCENARIO_KEYS: tuple[str, ...] = ("loan", "rating", "warn", "audit")
 
-# 定制：组合视角允许的章节积木（画像 / 预警）
 PORTFOLIO_PORTRAIT_CHAPTERS: frozenset[str] = frozenset({"score", "trend", "benchmark"})
 PORTFOLIO_ALERT_CHAPTERS: frozenset[str] = frozenset({"signal", "fraud", "tax", "authenticity"})
 PORTFOLIO_ALLOWED_CHAPTERS: frozenset[str] = PORTFOLIO_PORTRAIT_CHAPTERS | PORTFOLIO_ALERT_CHAPTERS
+PORTFOLIO_LOAN_CHAPTERS: frozenset[str] = frozenset({"score", "fraud", "authenticity", "benchmark"})
+PORTFOLIO_AUDIT_CHAPTERS: frozenset[str] = frozenset({"fraud", "authenticity", "tax", "signal"})
 
 # ── 全中文指标：英文/技术术语 → 平实中文（铁律：所有指标都是中文，英文无法理解）──
 ZH_SIGNAL_LABELS: dict[str, str] = {
@@ -298,21 +317,36 @@ def chapter_conclusion_lines(ch: dict[str, Any]) -> list[str]:
         return judgment[:1]
 
     picked = _pick_from_claims()
-    if picked:
-        return picked
-    # 有表时禁止整段 narration 进结论（与正文重复）
-    if has_table and narration:
-        lines = _action_from_narration(narration)
-        if lines:
-            return [strip_bullet_prefix(x) for x in lines]
+    if not picked:
+        # 有表时禁止整段 narration 进结论（与正文重复）
+        if has_table and narration:
+            lines = _action_from_narration(narration)
+            if lines:
+                picked = [strip_bullet_prefix(x) for x in lines]
+        elif narration and not _is_table_echo(narration):
+            # 无表：仍不整段堆砌，最多取末句动作/判断
+            lines = _action_from_narration(narration)
+            if lines:
+                picked = [strip_bullet_prefix(x) for x in lines]
+            else:
+                picked = [strip_bullet_prefix(narration)]
+
+    if not picked:
         return []
-    if narration and not _is_table_echo(narration):
-        # 无表：仍不整段堆砌，最多取末句动作/判断
-        lines = _action_from_narration(narration)
-        if lines:
-            return [strip_bullet_prefix(x) for x in lines]
-        return [strip_bullet_prefix(narration)]
-    return []
+
+    # 结论 + 为什么：首条作结论，次条或同条说明作原因
+    out: list[str] = []
+    head = picked[0].rstrip("。")
+    why = picked[1].rstrip("。") if len(picked) > 1 else ""
+    if why and "为什么" not in head:
+        out.append(f"结论：{head}。为什么：{why}。")
+    elif "为什么" in head or head.startswith("结论"):
+        out.append(head if head.endswith(("。", "！", "？")) else head + "。")
+    else:
+        out.append(f"结论：{head}。")
+    for extra in picked[2:]:
+        out.append(extra if extra.endswith(("。", "！", "？")) else extra + "。")
+    return out[:3]
 
 
 def zh_signal(key: str) -> str:
@@ -356,45 +390,179 @@ def business_level(score: float | None) -> str:
         return "中等"
     return "稳健" if score >= 70 else "偏弱" if score < 45 else "中等"
 
+
+def metric_level(score: float | None = None, *, flagged: bool | None = None) -> str:
+    """关键数字旁标签：偏强 / 正常 / 预警（小白可读）。"""
+    if flagged is True:
+        return "预警"
+    if score is None:
+        return "正常"
+    if score >= 70:
+        return "偏强"
+    if score < 45:
+        return "预警"
+    return "正常"
+
+
+def cover_frame_key(scenario: str | None) -> str:
+    """封面回纹框：loan/rating/warn/audit；个体体检默认 rating。"""
+    key = _canonical(scenario) if scenario and scenario != "enterprise" else "rating"
+    if scenario == "enterprise":
+        return "rating"
+    return key if key in _CANONICAL_KEYS else "rating"
+
+
+def actionable_advice(lines: list[str] | None, *, scenario: str | None = None) -> list[str]:
+    """把空泛建议收成能照做的动作句；已是动作句则保留。"""
+    raw = [strip_bullet_prefix(x) for x in (lines or []) if (x or "").strip()]
+    action_keys = ("核查", "核对", "导出", "抽查", "压降", "收紧", "对照", "优先", "调取")
+    out: list[str] = []
+    for line in raw:
+        if any(k in line for k in action_keys):
+            out.append(line if line.endswith(("。", "！", "？")) else line + "。")
+        else:
+            out.append(f"建议：对照关键数字核对「{line.rstrip('。')}」，并留下可复核记录。")
+    if out:
+        return out[:4]
+    sc = _canonical(scenario) if scenario and scenario != "enterprise" else (scenario or "rating")
+    defaults = {
+        "loan": "建议：按行业均值设额度上限，并把开票连续性、进销是否对得上作为放贷附加条件。",
+        "rating": "建议：对照官方扣分项核对冲红次数与申报差异，再确认等级口径。",
+        "warn": "建议：把最高信号行业/群体拉出来，核对近 3 个月开票与申报是否同向。",
+        "audit": "建议：优先抽查红冲发票对应销售方名单，并核对申报收入与开票收入是否一致。",
+        "enterprise": "建议：先处理最高风险信号，再回头看综合经营表现是否回升。",
+    }
+    return [defaults.get(sc or "rating", defaults["rating"])]
+
 # ── 定制报告：可自由组合的章节词汇（L3 结构层）──
-# AI 定制对话把用户诉求映射为 8 个可组合「功能」的有序子集，逐个复用既有章节 builder。
-# value = (章节标题, 章节说明)。key 与 judgment_service 的 8 个 function 一一对应。
-CUSTOM_CHAPTERS: dict[str, tuple[str, str]] = {
-    "financial": ("财务健康", "财务四能力 + 勾稽真实性 + 同业对标"),
-    "tax": ("税务合规", "税负 + 纳税准时率 + 欠税信号"),
-    "fraud": ("发票舞弊", "进销错配/红冲/集中度/序列缺口"),
-    "authenticity": ("经营真实性", "多口径营收差异交叉核对"),
-    "signal": ("风险信号总览", "违法/偏差/信用/多重叠加"),
-    "score": ("六维经营表现", "六个维度经营表现画像"),
-    "benchmark": ("行业对标", "同行均值/同业对比"),
-    "trend": ("营收趋势", "营收同比与行业对比"),
+# M3：旧常量改为 CHAPTER_REGISTRY 兼容别名，所有调用点自动兼容。
+# CUSTOM_CHAPTERS / CUSTOM_CHAPTER_DIMENSIONS / FUNCTION_RADAR_DIMENSIONS 定义在 CHAPTER_REGISTRY 之后。
+
+
+# ── M0 冻结：章节工具表（Chapter Tools）──
+# 收敛 CUSTOM_CHAPTERS + CUSTOM_CHAPTER_DIMENSIONS + FUNCTION_RADAR_DIMENSIONS 为一张注册表。
+# 加新章节 = 写一个新引擎函数 + 在此注册表加一条记录，不再改散落的四处配置。
+CHAPTER_REGISTRY: dict[str, dict[str, Any]] = {
+    "financial": {
+        "title": "财务健康",
+        "desc": "财务四能力 + 勾稽真实性 + 同业对标",
+        "engine_fn": "build_financial_claims",
+        "default_dimension": "overall",
+        "radar_dims": ("finance",),
+        "data_shapes": ["categorical_distribution", "tabular_rows"],
+        "keywords": ["财务健康", "盈利能力", "偿债能力", "现金流", "财务"],
+        "kpis": [
+            {"label": "利润率", "metric": "profit_margin", "unit": "%"},
+            {"label": "营收同比", "metric": "revenue_yoy", "unit": "%"},
+            {"label": "资产负债率", "metric": "debt_ratio", "unit": "%"},
+            {"label": "现金流水平", "metric": "cash_flow_level", "unit": ""},
+        ],
+    },
+    "tax": {
+        "title": "税务合规",
+        "desc": "税负 + 纳税准时率 + 欠税信号",
+        "engine_fn": "build_tax_claims",
+        "default_dimension": "overall",
+        "radar_dims": ("tax_health",),
+        "data_shapes": ["categorical_distribution"],
+        "keywords": ["税务合规", "税负", "欠税", "纳税", "税务"],
+        "kpis": [
+            {"label": "纳税准时率", "metric": "tax_on_time_rate", "unit": ""},
+            {"label": "增值税税负率", "metric": "vat_burden", "unit": "%"},
+            {"label": "所得税税负率", "metric": "income_tax_burden", "unit": "%"},
+            {"label": "欠税记录", "metric": "tax_arrears_cnt", "unit": "条"},
+        ],
+    },
+    "fraud": {
+        "title": "发票舞弊",
+        "desc": "进销错配/红冲/集中度/序列缺口",
+        "engine_fn": "build_fraud_claims",
+        "default_dimension": "industry",
+        "radar_dims": ("invoice",),
+        "data_shapes": ["hierarchical_stages", "categorical_distribution", "tabular_rows"],
+        "keywords": ["发票舞弊", "进销错配", "红冲", "红字发票", "发票", "舞弊", "欺诈"],
+        "kpis": [
+            {"label": "舞弊预警主体数", "metric": "flagged_count", "unit": "家"},
+            {"label": "舞弊综合分", "metric": "fraud_composite_score", "unit": "分"},
+        ],
+    },
+    "authenticity": {
+        "title": "经营真实性",
+        "desc": "多口径营收差异交叉核对",
+        "engine_fn": "build_authenticity_claims",
+        "default_dimension": "overall",
+        "radar_dims": ("authenticity",),
+        "data_shapes": ["proportion_buckets", "tabular_rows"],
+        "keywords": ["经营真实性", "经营真实", "真实性", "真伪", "造假", "虚开", "勾稽", "可信度", "benford"],
+        "kpis": [
+            {"label": "营收偏差", "metric": "revenue_deviation", "unit": ""},
+            {"label": "可疑主体数", "metric": "suspicious_count", "unit": "家"},
+        ],
+    },
+    "signal": {
+        "title": "风险信号总览",
+        "desc": "违法/偏差/信用/多重叠加",
+        "engine_fn": "build_signal_claims",
+        "default_dimension": "signal",
+        "radar_dims": ("tax_health",),
+        "data_shapes": ["matrix_heatmap", "proportion_buckets", "hierarchical_stages"],
+        "keywords": ["风险信号", "风险预警", "预警", "信号", "告警"],
+        "kpis": [
+            {"label": "风险信号主体数", "metric": "signal_total", "unit": "家"},
+            {"label": "税务违法", "metric": "tax_violation", "unit": "家"},
+            {"label": "高偏差", "metric": "high_dev", "unit": "家"},
+            {"label": "低信用", "metric": "low_credit", "unit": "家"},
+        ],
+    },
+    "score": {
+        "title": "六维经营表现",
+        "desc": "六个维度经营表现画像",
+        "engine_fn": "build_score_claims",
+        "default_dimension": "industry",
+        "radar_dims": ("industry", "tax_health"),
+        "data_shapes": ["multi_dim_vector", "categorical_distribution"],
+        "keywords": ["风险等级", "综合评分", "综合分", "信用评分", "评分", "打分"],
+        "kpis": [
+            {"label": "综合经营表现", "metric": "overall_score", "unit": "分"},
+            {"label": "税务健康", "metric": "tax_health_score", "unit": "分"},
+            {"label": "经营真实性", "metric": "authenticity_score", "unit": "分"},
+            {"label": "发票健康", "metric": "invoice_score", "unit": "分"},
+        ],
+    },
+    "benchmark": {
+        "title": "行业对标",
+        "desc": "同行均值/同业对比",
+        "engine_fn": "build_benchmark_claims",
+        "default_dimension": "industry",
+        "radar_dims": ("industry", "finance"),
+        "data_shapes": ["categorical_distribution"],
+        "keywords": ["行业对比", "同业对标", "百分位", "同行均值", "对标", "同业", "基准"],
+        "kpis": [
+            {"label": "行业对标", "metric": "peer_industry_percentile", "unit": ""},
+            {"label": "地区对标", "metric": "peer_province_percentile", "unit": ""},
+        ],
+    },
+    "trend": {
+        "title": "营收趋势",
+        "desc": "营收同比与行业对比",
+        "engine_fn": "build_trend_industry_claims",
+        "default_dimension": "industry",
+        "radar_dims": ("industry",),
+        "data_shapes": ["ordered_series"],
+        "keywords": ["营收趋势", "同比", "环比", "趋势", "走向", "走势"],
+        "kpis": [
+            {"label": "营收同比", "metric": "revenue_yoy", "unit": "%"},
+        ],
+    },
 }
 
-# 每个可组合章节默认的分析维度（对齐固定场景 SCENARIOS 里的既有用法）
-CUSTOM_CHAPTER_DIMENSIONS: dict[str, str] = {
-    "financial": "overall",
-    "tax": "overall",
-    "fraud": "industry",
-    "authenticity": "overall",
-    "signal": "signal",
-    "score": "industry",
-    "benchmark": "industry",
-    "trend": "industry",
-}
-
-# 每个功能覆盖的「六维雷达」维度（铁律：雷达 ⊆ 正文解析维度）。
-# score 仅在 dimension=overall（无行业筛选，全样本六维归因）时覆盖全部六维；其余为行业信用与纳税健康。
-# 用途：雷达图渲染前按章节裁剪，杜绝「雷达展示风险维度但正文无对应解析」的三张皮问题。
-FUNCTION_RADAR_DIMENSIONS: dict[str, tuple[str, ...]] = {
-    "financial": ("finance",),            # 财务四能力
-    "tax": ("tax_health",),               # 税负/准时率/欠税
-    "fraud": ("invoice",),                # 发票舞弊信号
-    "authenticity": ("authenticity",),    # 多口径营收差异
-    "benchmark": ("industry", "finance"),  # 行业地位 + 财务比率对标
-    "trend": ("industry",),               # 营收规模/趋势
-    "signal": ("tax_health",),            # 税务违法/偏差/信用信号
-    "score": ("industry", "tax_health"),  # 行业信用与纳税健康（industry/region）
-}
+# M3：旧常量改为 CHAPTER_REGISTRY 兼容别名
+CUSTOM_CHAPTERS: dict[str, tuple[str, str]] = {k: (v["title"], v["desc"]) for k, v in CHAPTER_REGISTRY.items()}
+CUSTOM_CHAPTER_DIMENSIONS: dict[str, str] = {k: v["default_dimension"] for k, v in CHAPTER_REGISTRY.items()}
+FUNCTION_RADAR_DIMENSIONS: dict[str, tuple[str, ...]] = {k: v["radar_dims"] for k, v in CHAPTER_REGISTRY.items()}
+CUSTOM_CHAPTER_KEYWORDS: list[tuple[str, str]] = [
+    (kw, k) for k, v in CHAPTER_REGISTRY.items() for kw in v.get("keywords", [])
+]
 
 
 def radar_dimensions_for_chapters(chapters: list[dict[str, Any]]) -> list[str]:
@@ -411,69 +579,30 @@ def radar_dimensions_for_chapters(chapters: list[dict[str, Any]]) -> list[str]:
         if fn == "score" and ch.get("dimension") == "overall":
             covered.update(DIMENSION_WEIGHTS)
         else:
-            covered.update(FUNCTION_RADAR_DIMENSIONS.get(fn, ()))
+            covered.update((CHAPTER_REGISTRY.get(fn) or {}).get("radar_dims", ()))
     return [k for k in DIMENSION_WEIGHTS if k in covered]
-
-# 章节关键词（规则侧兜底 + 数据驱动引导）：把用户自然语言映射到 8 个可组合章节。
-# 更具体短语在前，避免「信用评分」被「评分」泛化吞掉；顺序只用于 find，匹配去重后按提及先后排序。
-CUSTOM_CHAPTER_KEYWORDS: list[tuple[str, str]] = [
-    ("财务健康", "financial"),
-    ("盈利能力", "financial"),
-    ("偿债能力", "financial"),
-    ("现金流", "financial"),
-    ("财务", "financial"),
-    ("税务合规", "tax"),
-    ("税负", "tax"),
-    ("欠税", "tax"),
-    ("纳税", "tax"),
-    ("税务", "tax"),
-    ("发票舞弊", "fraud"),
-    ("进销错配", "fraud"),
-    ("红冲", "fraud"),
-    ("红字发票", "fraud"),
-    ("发票", "fraud"),
-    ("舞弊", "fraud"),
-    ("欺诈", "fraud"),
-    ("经营真实性", "authenticity"),
-    ("经营真实", "authenticity"),
-    ("真实性", "authenticity"),
-    ("真伪", "authenticity"),
-    ("造假", "authenticity"),
-    ("虚开", "authenticity"),
-    ("勾稽", "authenticity"),
-    ("可信度", "authenticity"),
-    ("benford", "authenticity"),
-    ("风险信号", "signal"),
-    ("风险预警", "signal"),
-    ("预警", "signal"),
-    ("信号", "signal"),
-    ("告警", "signal"),
-    ("风险等级", "score"),
-    ("综合评分", "score"),
-    ("综合分", "score"),
-    ("信用评分", "score"),
-    ("评分", "score"),
-    ("打分", "score"),
-    ("行业对比", "benchmark"),
-    ("同业对标", "benchmark"),
-    ("百分位", "benchmark"),
-    ("同行均值", "benchmark"),
-    ("对标", "benchmark"),
-    ("同业", "benchmark"),
-    ("基准", "benchmark"),
-    ("营收趋势", "trend"),
-    ("同比", "trend"),
-    ("环比", "trend"),
-    ("趋势", "trend"),
-    ("走向", "trend"),
-    ("走势", "trend"),
-]
 
 # ── L2 语气层：场景人格 + 去 AI 味（语气只改表达，不改评级/数字，铁律）──
 # 同一批数据按场景换「身份/文风」，但结论与评级仍由 L0/L1 统一决定。
 TONE_PROFILES: dict[str, dict[str, str]] = {
+    "loan": {
+        "persona": "信贷风控顾问",
+        "style": "风控专家口吻：结论前置；回答能不能贷、额度要不要收紧、附加条件写什么。",
+    },
+    "rating": {
+        "persona": "评级分析师",
+        "style": "风控专家口吻：结论前置；重信用结构、等级信号与分布，不作空泛定性。",
+    },
+    "warn": {
+        "persona": "风险预警分析师",
+        "style": "风控专家口吻：结论前置；写清阈值、命中条数与预警家数，给可核查动作。",
+    },
+    "audit": {
+        "persona": "稽查线索分析师",
+        "style": "风控专家口吻：结论前置；指出哪里可疑、该先查什么，给可照做的核查动作。",
+    },
     "portrait": {
-        "persona": "组合画像分析师",
+        "persona": "评级分析师",
         "style": "风控专家口吻：结论前置；重结构、分布与占比，不作单户定性。",
     },
     "alert": {
@@ -489,7 +618,7 @@ TONE_PROFILES: dict[str, dict[str, str]] = {
         "style": "风控专家口吻：结论前置、判断直接、给可执行动作；突出合规风险与补税/滞纳后果，短句。",
     },
     "fraud": {
-        "persona": "风险预警分析师",
+        "persona": "稽查线索分析师",
         "style": "风控专家口吻：结论前置、判断直接、给可执行动作；聚焦异常证据与可疑主体，只陈述证据不妄下结论。",
     },
     "due_diligence": {
@@ -497,11 +626,11 @@ TONE_PROFILES: dict[str, dict[str, str]] = {
         "style": "风控专家口吻：结论前置、判断直接、给可执行动作；风险分级清晰，可执行、可核查。",
     },
     "profile": {
-        "persona": "组合画像分析师",
+        "persona": "评级分析师",
         "style": "风控专家口吻：结论前置、判断直接、给可执行动作；重分布与占比，不渲染情绪。",
     },
     "overview": {
-        "persona": "组合画像分析师",
+        "persona": "评级分析师",
         "style": "风控专家口吻：结论前置、判断直接、给可执行动作；跨场景摘要并置，突出关键风险。",
     },
     "enterprise": {
@@ -526,66 +655,78 @@ BANNED_AI_PHRASES = (
 
 # 对话快捷：默认画像；可指定画像/预警及旧场景关键词
 SCENARIO_ALIASES = {
-    "画像": "portrait",
-    "样本库画像": "portrait",
-    "结构": "portrait",
-    "分布": "portrait",
-    "基础信息": "portrait",
-    "企业概况": "portrait",
-    "概览": "portrait",
-    "总览": "portrait",
-    "汇总": "portrait",
-    "综合总览": "portrait",
-    "预警": "alert",
-    "风险预警": "alert",
-    "告警": "alert",
-    "监察": "alert",
-    "稽查": "alert",
-    "财务": "alert",
-    "财务健康": "alert",
-    "盈利": "alert",
-    "偿债": "alert",
-    "现金流": "alert",
-    "基本面": "alert",
-    "税务": "alert",
-    "合规": "alert",
-    "税负": "alert",
-    "欠税": "alert",
-    "纳税": "alert",
-    "发票": "alert",
-    "舞弊": "alert",
-    "欺诈": "alert",
-    "红冲": "alert",
-    "进销": "alert",
-    "尽调": "alert",
-    "综合": "alert",
-    "全面": "alert",
-    "趋势": "alert",
-    "通识": "alert",
+    "放贷": "loan",
+    "授信": "loan",
+    "批贷": "loan",
+    "能不能贷": "loan",
+    "评级": "rating",
+    "信用等级": "rating",
+    "纳税信用": "rating",
+    "画像": "rating",
+    "样本库画像": "rating",
+    "结构": "rating",
+    "分布": "rating",
+    "基础信息": "rating",
+    "企业概况": "rating",
+    "概览": "rating",
+    "总览": "rating",
+    "汇总": "rating",
+    "综合总览": "rating",
+    "预警": "warn",
+    "风险预警": "warn",
+    "告警": "warn",
+    "监察": "warn",
+    "稽查": "audit",
+    "核查": "audit",
+    "可疑": "audit",
+    "财务": "warn",
+    "财务健康": "warn",
+    "盈利": "warn",
+    "偿债": "loan",
+    "现金流": "loan",
+    "基本面": "rating",
+    "税务": "warn",
+    "合规": "warn",
+    "税负": "warn",
+    "欠税": "audit",
+    "纳税": "rating",
+    "发票": "audit",
+    "舞弊": "audit",
+    "欺诈": "audit",
+    "红冲": "audit",
+    "进销": "audit",
+    "尽调": "warn",
+    "综合": "warn",
+    "全面": "warn",
+    "趋势": "rating",
+    "通识": "warn",
 }
 
-# 旧场景 key → 画像|预警
+# 旧场景 key → 四业务场景
 _LEGACY_SCENARIO_MAP = {
-    "general": "alert",
-    "fundamental": "alert",
-    "custom": "alert",
-    "financial": "alert",
-    "tax": "alert",
-    "fraud": "alert",
-    "due_diligence": "alert",
-    "profile": "portrait",
-    "overview": "portrait",
+    "general": "warn",
+    "fundamental": "warn",
+    "custom": "warn",
+    "financial": "warn",
+    "tax": "warn",
+    "fraud": "audit",
+    "due_diligence": "warn",
+    "profile": "rating",
+    "overview": "rating",
+    "portrait": "rating",
+    "alert": "warn",
 }
 
-DEFAULT_SCENARIO = "portrait"
+DEFAULT_SCENARIO = "rating"
+_CANONICAL_KEYS = frozenset({"loan", "rating", "warn", "audit"})
 
 
 def _canonical(key: str | None) -> str:
-    """旧 key 归一化到 portrait|alert；未知 key 保持原样（调用方决定是否报错）。"""
+    """旧 key 归一化到 loan|rating|warn|audit；未知 key 保持原样（调用方决定是否报错）。"""
     if not key:
         return DEFAULT_SCENARIO
     mapped = _LEGACY_SCENARIO_MAP.get(key, key)
-    if mapped in ("portrait", "alert"):
+    if mapped in _CANONICAL_KEYS:
         return mapped
     return mapped
 
@@ -669,14 +810,19 @@ def sanitize_surface_industry_terms(text: str | None) -> str:
 def get_scenario_cover(key: str) -> dict[str, str]:
     """场景封面母题 + 主色，供封面图形渲染（L4）。"""
     spec = SCENARIOS.get(_canonical(key)) or SCENARIOS[DEFAULT_SCENARIO]
-    return dict(spec.get("cover") or {"motif": "compass", "accent": "#003366"})
+    return dict(spec.get("cover") or {"motif": "compass", "accent": "#152446"})
 
 
 def get_scenario_tone(key: str) -> dict[str, str]:
-    """场景语气（L2）：报告解读/摘要的身份与文风；未知 key 回退综合尽调。"""
+    """场景语气（L2）：报告解读/摘要的身份与文风；未知 key 回退综合尽调。
+
+    返回 dict 包含 persona/style/scenario 三键；scenario 用于统一 PERSONA 注入
+    （红线 §4：报告层与对话层共用同一份 PERSONA，scenario 变体叠加）。
+    """
     if key in TONE_PROFILES:
-        return TONE_PROFILES[key]
-    return TONE_PROFILES.get(_canonical(key), TONE_PROFILES[DEFAULT_SCENARIO])
+        return {**TONE_PROFILES[key], "scenario": key}
+    canonical = _canonical(key)
+    return {**TONE_PROFILES.get(canonical, TONE_PROFILES[DEFAULT_SCENARIO]), "scenario": canonical}
 
 
 def compose_purpose_from_claims(
